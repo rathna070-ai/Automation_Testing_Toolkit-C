@@ -34,7 +34,13 @@ public static class LocatorJsonGenerator
                 if (locators.ContainsKey(plan.LocatorKey))
                     continue;
 
+                // An element captured without any locator candidates can't be written to the
+                // repository. Skip it rather than crashing the whole generation; the missing key
+                // surfaces as a clear KeyNotFoundException at test time instead.
                 var best = plan.Step.Element.BestLocator;
+                if (best is null)
+                    continue;
+
                 locators[plan.LocatorKey] = new LocatorEntry(best.Strategy, best.Value);
             }
 

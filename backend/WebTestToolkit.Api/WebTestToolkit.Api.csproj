@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WebTestToolkit.Contracts\WebTestToolkit.Contracts.csproj" />
+    <ProjectReference Include="..\WebTestToolkit.CodeGenerator\WebTestToolkit.CodeGenerator.csproj" />
+    <ProjectReference Include="..\WebTestToolkit.Llm\WebTestToolkit.Llm.csproj" />
+    <ProjectReference Include="..\WebTestToolkit.Inspector\WebTestToolkit.Inspector.csproj" />
+    <ProjectReference Include="..\WebTestToolkit.Execution\WebTestToolkit.Execution.csproj" />
+    <ProjectReference Include="..\WebTestToolkit.Export\WebTestToolkit.Export.csproj" />
+  </ItemGroup>
+
+</Project>
