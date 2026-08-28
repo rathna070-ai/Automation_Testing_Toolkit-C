@@ -42,12 +42,23 @@ serializes them itself.
 8. **Do not create a step whose binding pattern duplicates or ambiguously overlaps** any
    pattern listed in the existing-project index. Reqnroll resolves bindings at runtime, so a
    collision compiles perfectly and then fails every run.
-9. **No `Thread.Sleep`.** Waiting is `FindVisible`'s job, via `WebDriverWait`.
-10. **Use NUnit constraint syntax**: `Assert.That(actual, Does.Contain("x"))`,
+9. **Every step in the `.feature` must have a binding whose pattern matches it exactly.**
+   The text inside `[Given]`/`[When]`/`[Then]` must correspond to the wording in the feature
+   file, character for character (aside from regex escaping and capture groups). A mismatch
+   compiles fine and then fails at runtime with "No matching step definition".
+10. **Every `Then` step must actually verify something** — a real `Assert`, or a `throw` on
+    failure. Never an empty body, never only a comment. An empty `Then` step passes silently
+    forever: it reports success while checking nothing, which is worse than a failing test.
+11. **No `Thread.Sleep`.** Waiting is `FindVisible`'s job, via `WebDriverWait`.
+12. **Use NUnit constraint syntax**: `Assert.That(actual, Does.Contain("x"))`,
     `Assert.That(flag, Is.True)`.
-11. Target framework is net8.0 with `ImplicitUsings` and `Nullable` enabled. Use
+13. **Never invent test data or expected text.** Use the values supplied in the flow. If an
+    assertion needs expected text that the flow does not provide, assert on something the
+    flow does establish rather than guessing a string.
+14. **One action per step.** Do not fold several interactions into a single step.
+15. Target framework is net8.0 with `ImplicitUsings` and `Nullable` enabled. Use
     file-scoped namespaces.
-12. Namespaces are fixed: `WebTestToolkit.GeneratedTests.PageObjects`,
+16. Namespaces are fixed: `WebTestToolkit.GeneratedTests.PageObjects`,
     `WebTestToolkit.GeneratedTests.Steps`.
 
 ## Page object shape
@@ -64,6 +75,9 @@ One method per action. Page objects contain the Selenium calls; step classes nev
 `[Binding]`, constructor-injects the page objects it needs (Reqnroll's context injection
 supplies them), one method per Gherkin step. Escape regex metacharacters in binding
 patterns; a captured value is `"(.*)"`.
+
+When several steps repeat the same wait-then-interact shape, put the shared part in a
+private helper on the page object rather than repeating it per field.
 
 ## Where you should improve on the reference implementation
 

@@ -48,6 +48,8 @@ public static partial class StaticValidator
         ValidateLocatorClosure(fileSet, issues);
         ValidateBindings(fileSet, existingBindings, issues);
         ValidateGherkin(fileSet, issues);
+        ValidateStepCoverage(fileSet, existingBindings, issues);
+        ValidateThenStepsAssert(fileSet, issues);
 
         return issues;
     }
@@ -190,6 +192,167 @@ public static partial class StaticValidator
             if (!lines.Any(l => l.StartsWith("Scenario:", StringComparison.Ordinal) || l.StartsWith("Scenario Outline:", StringComparison.Ordinal)))
                 issues.Add(new ValidationIssue(IssueSource.Static, "WTT141", file.Path, null, "Feature file has no 'Scenario:' or 'Scenario Outline:'."));
         }
+    }
+
+    // A step in the .feature with no binding that matches it compiles perfectly and then
+    // fails at runtime with "No matching step definition". Same family as the ambiguous-
+    // binding check: invisible to the compiler, so it has to be caught here.
+    private static void ValidateStepCoverage(
+        GeneratedFileSet fileSet,
+        IReadOnlyList<BindingPattern> existingBindings,
+        List<ValidationIssue> issues)
+    {
+        var bindings = new List<BindingPattern>(existingBindings);
+        foreach (var file in fileSet.Files.Where(f => f.Path.Replace('\\', '/').StartsWith("Steps/", StringComparison.OrdinalIgnoreCase)))
+            bindings.AddRange(BindingIndex.Extract(file.Path, file.Content));
+
+        foreach (var feature in fileSet.Files.Where(f => f.Path.EndsWith(".feature", StringComparison.OrdinalIgnoreCase)))
+        {
+            foreach (var (keyword, text, lineNumber) in EnumerateGherkinSteps(feature.Content))
+            {
+                if (bindings.Any(b => BindingMatches(b, keyword, text)))
+                    continue;
+
+                issues.Add(new ValidationIssue(IssueSource.Static, "WTT150", feature.Path, lineNumber,
+                    $"Step '{keyword} {text}' has no matching step definition. The binding attribute text must match the wording in the feature file exactly."));
+            }
+        }
+    }
+
+    // Yields each step with its effective keyword — And/But inherit whatever came before,
+    // which is how Reqnroll resolves them.
+    private static IEnumerable<(string Keyword, string Text, int Line)> EnumerateGherkinSteps(string featureContent)
+    {
+        var lines = featureContent.Split('\n');
+        string? currentKeyword = null;
+        var inExamples = false;
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var line = lines[i].Trim().TrimEnd('\r');
+            if (line.Length == 0 || line.StartsWith('#') || line.StartsWith('@'))
+                continue;
+
+            if (line.StartsWith("Examples:", StringComparison.Ordinal))
+            {
+                inExamples = true;
+                continue;
+            }
+
+            if (line.StartsWith("Scenario", StringComparison.Ordinal) || line.StartsWith("Feature:", StringComparison.Ordinal))
+            {
+                inExamples = false;
+                currentKeyword = null;
+                continue;
+            }
+
+            // Examples rows and data tables are arguments, not steps.
+            if (inExamples || line.StartsWith('|'))
+                continue;
+
+            var match = Regex.Match(line, @"^(Given|When|Then|And|But)\s+(.*)$");
+            if (!match.Success)
+                continue;
+
+            var keyword = match.Groups[1].Value;
+            var text = match.Groups[2].Value.Trim();
+
+            if (keyword is "And" or "But")
+            {
+                if (currentKeyword is null)
+                    continue;
+                keyword = currentKeyword;
+            }
+            else
+            {
+                currentKeyword = keyword;
+            }
+
+            yield return (keyword, text, i + 1);
+        }
+    }
+
+    private static bool BindingMatches(BindingPattern binding, string keyword, string stepText)
+    {
+        // StepDefinition binds to any keyword.
+        if (binding.Keyword != "StepDefinition" && binding.Keyword != keyword)
+            return false;
+
+        // In a Scenario Outline the <placeholders> are substituted at runtime; swap in a
+        // stand-in value so they can match a capture group during this static check.
+        var probeText = Regex.Replace(stepText, @"<[^>]+>", "x");
+
+        try
+        {
+            var pattern = binding.Pattern;
+            if (!pattern.StartsWith('^')) pattern = "^" + pattern;
+            if (!pattern.EndsWith('$')) pattern += "$";
+            return Regex.IsMatch(probeText, pattern);
+        }
+        catch (ArgumentException)
+        {
+            // An invalid regex in the binding isn't this check's business — the
+            // binding-conflict and compile stages will surface it.
+            return true;
+        }
+    }
+
+    // An empty Then step passes silently forever, which is worse than a failing test —
+    // it reports success while verifying nothing.
+    private static void ValidateThenStepsAssert(GeneratedFileSet fileSet, List<ValidationIssue> issues)
+    {
+        foreach (var file in fileSet.Files.Where(f => f.Path.Replace('\\', '/').StartsWith("Steps/", StringComparison.OrdinalIgnoreCase)))
+        {
+            foreach (Match attribute in Regex.Matches(file.Content, """\[Then\(@?"(?:[^"]|"")*"\)\]"""))
+            {
+                var body = ExtractMethodBody(file.Content, attribute.Index + attribute.Length);
+                if (body is null)
+                    continue;
+
+                var stripped = Regex.Replace(body, @"//.*?$|/\*.*?\*/", "", RegexOptions.Multiline | RegexOptions.Singleline);
+
+                var asserts = stripped.Contains("Assert", StringComparison.Ordinal)
+                    || stripped.Contains("throw", StringComparison.Ordinal)
+                    || stripped.Contains(".Should(", StringComparison.Ordinal);
+
+                if (!asserts)
+                {
+                    issues.Add(new ValidationIssue(IssueSource.Static, "WTT151", file.Path,
+                        LineOf(file.Content, attribute.Index),
+                        "This Then step performs no verification. An empty or non-asserting Then step passes silently and reports success without checking anything — it must call Assert or throw."));
+                }
+            }
+        }
+    }
+
+    // Handles both block bodies and expression-bodied members.
+    private static string? ExtractMethodBody(string content, int searchFrom)
+    {
+        var arrow = content.IndexOf("=>", searchFrom, StringComparison.Ordinal);
+        var brace = content.IndexOf('{', searchFrom);
+
+        if (arrow >= 0 && (brace < 0 || arrow < brace))
+        {
+            var end = content.IndexOf(';', arrow);
+            return end < 0 ? content[arrow..] : content[arrow..end];
+        }
+
+        if (brace < 0)
+            return null;
+
+        var depth = 0;
+        for (var i = brace; i < content.Length; i++)
+        {
+            if (content[i] == '{') depth++;
+            else if (content[i] == '}')
+            {
+                depth--;
+                if (depth == 0)
+                    return content[(brace + 1)..i];
+            }
+        }
+
+        return null;
     }
 
     private static int LineOf(string content, int charIndex) =>

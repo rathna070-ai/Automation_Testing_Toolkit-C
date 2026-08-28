@@ -54,6 +54,9 @@ public class StaticValidatorTests
             Then I should see a success message
         """;
 
+    // A complete, valid set: feature + page object + the step bindings that cover it.
+    // A feature without matching bindings is genuinely invalid (WTT150), so the baseline
+    // has to include the Steps file to represent "nothing wrong here".
     private static GeneratedFileSet FileSet(
         List<GeneratedFileDto>? files = null,
         List<GeneratedLocatorDto>? locators = null) =>
@@ -61,7 +64,8 @@ public class StaticValidatorTests
             files ??
             [
                 new GeneratedFileDto("Features/Login.feature", ValidFeature),
-                new GeneratedFileDto("PageObjects/LoginPage.cs", ValidPageObject)
+                new GeneratedFileDto("PageObjects/LoginPage.cs", ValidPageObject),
+                new GeneratedFileDto("Steps/LoginSteps.cs", CoveredSteps)
             ],
             locators ??
             [
@@ -207,5 +211,209 @@ public class StaticValidatorTests
             []);
 
         Assert.That(issues.Any(i => i.Code == "WTT003"), Is.True);
+    }
+
+    // --- Step coverage (WTT150): a feature step with no matching binding compiles fine
+    // --- and fails at runtime with "No matching step definition".
+
+    // Four-quote delimiter: the capture group below contains a run of three quotes.
+    private const string CoveredSteps = """"
+        using Reqnroll;
+        namespace WebTestToolkit.GeneratedTests.Steps;
+
+        [Binding]
+        public class LoginSteps
+        {
+            [Given(@"I am on the login page")]
+            public void GivenIAmOnTheLoginPage() { }
+
+            [When(@"I enter the username ""(.*)""")]
+            public void WhenIEnterTheUsername(string value) { }
+
+            [Then(@"I should see a success message")]
+            public void ThenIShouldSeeASuccessMessage()
+            {
+                Assert.That(true, Is.True);
+            }
+        }
+        """";
+
+    [Test]
+    public void EveryFeatureStepHasABinding_ProducesNoIssue()
+    {
+        var issues = StaticValidator.Validate(
+            FileSet(files:
+            [
+                new GeneratedFileDto("Features/Login.feature", ValidFeature),
+                new GeneratedFileDto("Steps/LoginSteps.cs", CoveredSteps)
+            ]), []);
+
+        Assert.That(issues.Any(i => i.Code == "WTT150"), Is.False,
+            "False positives here would trigger pointless repair loops: " +
+            string.Join("; ", issues.Select(i => $"{i.Code} {i.Message}")));
+    }
+
+    [Test]
+    public void FeatureStepWithNoMatchingBinding_IsRejected()
+    {
+        var featureWithExtraStep = ValidFeature.Replace(
+            "Then I should see a success message",
+            "Then I should see a totally unbound outcome");
+
+        var issues = StaticValidator.Validate(
+            FileSet(files:
+            [
+                new GeneratedFileDto("Features/Login.feature", featureWithExtraStep),
+                new GeneratedFileDto("Steps/LoginSteps.cs", CoveredSteps)
+            ]), []);
+
+        Assert.That(issues.Any(i => i.Code == "WTT150"), Is.True);
+    }
+
+    [Test]
+    public void StepMatchingAnExistingBindingElsewhere_IsAccepted()
+    {
+        // Reusing a step defined by another flow is legitimate, not a missing binding.
+        var featureOnly = FileSet(files: [new GeneratedFileDto("Features/Login.feature", ValidFeature)]);
+        var existing = new List<BindingPattern>
+        {
+            new("Given", @"I\ am\ on\ the\ login\ page", "Steps/OtherSteps.cs"),
+            new("When", @"I\ enter\ the\ username\ ""(.*)""", "Steps/OtherSteps.cs"),
+            new("Then", @"I\ should\ see\ a\ success\ message", "Steps/OtherSteps.cs")
+        };
+
+        var issues = StaticValidator.Validate(featureOnly, existing);
+
+        Assert.That(issues.Any(i => i.Code == "WTT150"), Is.False,
+            string.Join("; ", issues.Select(i => $"{i.Code} {i.Message}")));
+    }
+
+    [Test]
+    public void ScenarioOutlinePlaceholders_DoNotCauseFalsePositives()
+    {
+        var outline = """
+            Feature: Login
+
+              Scenario Outline: Login with several accounts
+                Given I am on the login page
+                When I enter the username "<username>"
+                Then I should see a success message
+
+              Examples:
+                | username |
+                | tomsmith |
+                | admin    |
+            """;
+
+        var issues = StaticValidator.Validate(
+            FileSet(files:
+            [
+                new GeneratedFileDto("Features/Login.feature", outline),
+                new GeneratedFileDto("Steps/LoginSteps.cs", CoveredSteps)
+            ]), []);
+
+        Assert.That(issues.Any(i => i.Code == "WTT150"), Is.False,
+            "Examples rows and <placeholders> must not be mistaken for unbound steps: " +
+            string.Join("; ", issues.Select(i => $"{i.Code} {i.Message}")));
+    }
+
+    [Test]
+    public void AndStepsInheritThePrecedingKeyword()
+    {
+        var feature = """
+            Feature: Login
+
+              Scenario: Login
+                Given I am on the login page
+                When I enter the username "tomsmith"
+                And I enter the username "admin"
+                Then I should see a success message
+            """;
+
+        var issues = StaticValidator.Validate(
+            FileSet(files:
+            [
+                new GeneratedFileDto("Features/Login.feature", feature),
+                new GeneratedFileDto("Steps/LoginSteps.cs", CoveredSteps)
+            ]), []);
+
+        Assert.That(issues.Any(i => i.Code == "WTT150"), Is.False,
+            "An 'And' after a 'When' binds as a When: " +
+            string.Join("; ", issues.Select(i => $"{i.Code} {i.Message}")));
+    }
+
+    // --- Then steps must verify (WTT151): an empty Then passes silently forever.
+
+    [TestCase("{ }", true, TestName = "EmptyThenBody_IsRejected")]
+    [TestCase("{ // TODO: verify something }", true, TestName = "ThenBodyWithOnlyAComment_IsRejected")]
+    [TestCase("{ _page.DoSomething(); }", true, TestName = "ThenBodyWithNoAssertion_IsRejected")]
+    [TestCase("{ Assert.That(true, Is.True); }", false, TestName = "ThenBodyWithAssert_IsAccepted")]
+    [TestCase("{ if (!ok) throw new Exception(\"nope\"); }", false, TestName = "ThenBodyThatThrows_IsAccepted")]
+    public void ThenStepVerificationIsChecked(string body, bool expectIssue)
+    {
+        var steps = $$"""
+            using Reqnroll;
+            namespace WebTestToolkit.GeneratedTests.Steps;
+
+            [Binding]
+            public class LoginSteps
+            {
+                [Then(@"I should see a success message")]
+                public void ThenIShouldSeeASuccessMessage()
+                {{body}}
+            }
+            """;
+
+        var issues = StaticValidator.Validate(
+            FileSet(files: [new GeneratedFileDto("Steps/LoginSteps.cs", steps)]), []);
+
+        Assert.That(issues.Any(i => i.Code == "WTT151"), Is.EqualTo(expectIssue),
+            string.Join("; ", issues.Select(i => $"{i.Code} {i.Message}")));
+    }
+
+    [Test]
+    public void ExpressionBodiedThenWithoutAssertion_IsRejected()
+    {
+        var steps = """
+            using Reqnroll;
+            namespace WebTestToolkit.GeneratedTests.Steps;
+
+            [Binding]
+            public class LoginSteps
+            {
+                [Then(@"I should see a success message")]
+                public void ThenIShouldSeeASuccessMessage() => _page.GetFlashMessage();
+            }
+            """;
+
+        var issues = StaticValidator.Validate(
+            FileSet(files: [new GeneratedFileDto("Steps/LoginSteps.cs", steps)]), []);
+
+        Assert.That(issues.Any(i => i.Code == "WTT151"), Is.True);
+    }
+
+    [Test]
+    public void GivenAndWhenSteps_AreNotRequiredToAssert()
+    {
+        var steps = """"
+            using Reqnroll;
+            namespace WebTestToolkit.GeneratedTests.Steps;
+
+            [Binding]
+            public class LoginSteps
+            {
+                [Given(@"I am on the login page")]
+                public void GivenIAmOnTheLoginPage() { _page.NavigateTo(); }
+
+                [When(@"I enter the username ""(.*)""")]
+                public void WhenIEnterTheUsername(string value) { _page.EnterUsername(value); }
+            }
+            """";
+
+        var issues = StaticValidator.Validate(
+            FileSet(files: [new GeneratedFileDto("Steps/LoginSteps.cs", steps)]), []);
+
+        Assert.That(issues.Any(i => i.Code == "WTT151"), Is.False,
+            "Only Then steps carry a verification obligation.");
     }
 }
