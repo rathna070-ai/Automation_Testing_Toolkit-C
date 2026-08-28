@@ -118,7 +118,7 @@ Nothing already built was wasted — `Contracts` and `CodeGenerator` carried ove
 
 ### ⬜ Not yet implemented
 
-| # | Phase | Scope | Acceptance |
+| # | Phase | What it adds | Acceptance |
 |---|---|---|---|
 | **P4** | **Groq foundation** | `GroqClient` transport, skill pattern, strict-schema plumbing, server-side key storage, Settings page. Failure analysis as the first skill (simplest, provable) | With a key set, a canned failure returns a plain-English root cause; with no key, the app still runs and says so |
 | **P5** | **LLM script generation + self-repair** | Codegen skill, staging compile, compiler-error feedback retry, deterministic fallback, provenance reporting | A hand-authored `TestFlow` generates code that compiles; a deliberately broken prompt exercises repair, then falls back cleanly |
@@ -132,6 +132,40 @@ Nothing already built was wasted — `Contracts` and `CodeGenerator` carried ove
 
 P4–P6 all work off hand-authored `TestFlow` fixtures, so substantial LLM and export work lands
 before any browser automation exists — the same trick that made the deterministic generator testable.
+
+### Effort, ETA, and model estimates
+
+**These are estimates, not measured data** — nothing below has been timed yet; P1–P3 are the only
+real data point so far (roughly 6 hours across the sessions that built them). Treat this as a
+planning input to revisit once a couple of phases actually complete, not a commitment.
+
+Assumptions: "Effort" is focused build time (implementation + your review/testing), not wall-clock.
+"ETA" is cumulative calendar time from now assuming a **part-time pace of ~2 sessions/week at 3–4
+hours each (~7 hrs/week)** — rescale directly if your actual pace differs. "Tokens/session" is a
+rough order-of-magnitude Claude budget for one typical work session on that phase (prompt + tool
+output + iteration), not a hard cap. "Model" is which Claude model this session used to build that
+phase.
+
+| # | Phase | Effort (hrs) | ETA (cumulative) | Tokens/session | Model |
+|---|---|---|---|---|---|
+| **P4** | Groq foundation | 6–8 | Week 1 | ~150K | Sonnet 5 |
+| **P5** | LLM codegen + self-repair | 12–16 | Week 3 | ~350–450K | **Opus 5** — staging-compile + retry-loop debugging, incl. Windows file-locking, is the riskiest logic in the plan |
+| **P6** | Test case export | 4–6 | Week 4 | ~100K | Sonnet 5 |
+| **P7** | Inspector backend | 10–14 | Week 6 | ~250–300K | **Opus 5** — JS-injection/Selenium interplay is fiddly to debug; Sonnet 5 is fine once the pattern is proven |
+| **P8** | Inspect UI + label suggestions | 8–10 | Week 7 | ~150K | Sonnet 5 |
+| **P9** | Generate end-to-end (+ assertions/edge cases/outlines) | 14–18 | Week 9 | ~300–400K | Sonnet 5 |
+| **P10** | Execution + Report | 10–12 | Week 11 | ~200K | Sonnet 5 |
+| **P11** | Failure analyzer UI | 4–6 | Week 12 | ~100K | Sonnet 5 (Haiku 4.5 viable — mostly UI wiring onto an existing skill) |
+| **P12** | Auto-heal | 6–8 | Week 13 | ~150K | Sonnet 5 |
+| | **Total remaining** | **~74–98 hrs** | **~13 weeks** | | |
+
+Two things worth knowing about the model column: Sonnet 5 is the default here because it's what
+this whole project has been built with and it's handled everything so far without trouble. The two
+Opus 5 call-outs (P5, P7) aren't about raw capability — they're the two phases with the most
+"integration with something outside your control" (a compiler, a live browser's JS engine) rather
+than "write code against a known API," which is where the extra reasoning tends to pay off in fewer
+debugging round-trips. If P4 or P6 stall unexpectedly, escalating to Opus 5 for that session is a
+reasonable move — none of this is a hard rule.
 
 ---
 
