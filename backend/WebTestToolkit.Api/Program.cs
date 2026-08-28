@@ -1,4 +1,8 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using WebTestToolkit.Api.Hubs;
+using WebTestToolkit.Api.Services;
+using WebTestToolkit.Llm;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -6,11 +10,19 @@ const string FrontendCorsPolicy = "Frontend";
 
 // Add services to the container.
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    // camelCase strings, not numbers, for every enum ("failed" not "1") — matches how
+    // the Llm layer already serializes/parses model output, so the wire shape is
+    // consistent whether JSON is coming from Groq or from this API.
+    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase)));
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddSignalR();
+
+builder.Services.AddSingleton<ISettingsStore, FileSettingsStore>();
+builder.Services.AddScoped<IGroqSettingsProvider, ApiGroqSettingsProvider>();
+builder.Services.AddWebTestToolkitLlm();
 
 // The Vite dev server runs on a different origin (localhost:5173) than the API
 // (localhost:5000). SignalR needs credentials for its handshake, so the policy has to

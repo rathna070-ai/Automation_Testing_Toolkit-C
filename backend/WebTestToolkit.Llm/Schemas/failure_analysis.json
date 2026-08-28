@@ -1,0 +1,34 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["category", "rootCause", "suggestedFix", "suggestedLocator", "isLikelyApplicationBug", "confidence"],
+  "properties": {
+    "category": {
+      "type": "string",
+      "enum": ["brokenLocator", "timing", "assertionMismatch", "navigation", "testData", "environment", "applicationBug", "unknown"]
+    },
+    "rootCause": {
+      "type": "string",
+      "description": "Two to four plain-English sentences explaining the likely cause. No jargon."
+    },
+    "suggestedFix": {
+      "type": "string",
+      "description": "One concrete, actionable next step the user can take."
+    },
+    "suggestedLocator": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["page", "key", "strategy", "value", "why"],
+      "description": "Only when the failure clearly names a specific broken locator and you are confident about a replacement. Null otherwise.",
+      "properties": {
+        "page": { "type": "string", "description": "Page object class name, e.g. LoginPage." },
+        "key": { "type": "string", "description": "Locator key, e.g. UsernameInput." },
+        "strategy": { "type": "string", "enum": ["id", "css", "xpath", "name"] },
+        "value": { "type": "string" },
+        "why": { "type": "string" }
+      }
+    },
+    "isLikelyApplicationBug": { "type": "boolean" },
+    "confidence": { "type": "number", "description": "0.0 to 1.0" }
+  }
+}
