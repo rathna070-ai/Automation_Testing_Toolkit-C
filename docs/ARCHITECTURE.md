@@ -80,41 +80,46 @@ Each backend library depends only on `Contracts`. `Api` references all of them. 
 
 | Area | What exists | Where |
 |---|---|---|
-| **Sample test suite** | Hand-written Reqnroll + Selenium login test proving the target output shape: 2 scenarios, page object, JSON locators, step bindings | `src/WebTestToolkit.GeneratedTests/` |
+| **Sample test suite** | Hand-written Reqnroll + Selenium login test proving the target output shape: 2 scenarios, page object, JSON locators, step bindings | `tests/WebTestToolkit.GeneratedTests/` |
 | ↳ Driver lifecycle | `DriverContext` — lazy `ChromeDriver`, one per scenario via Reqnroll context injection | `Support/DriverContext.cs` |
 | ↳ Failure screenshots | `Hooks` — `[AfterScenario]` screenshot on `TestError`, saved to `Screenshots/` | `Support/Hooks.cs` |
 | ↳ Locator indirection | `LocatorRepository` — loads `*.locators.json`, maps `id`/`css`/`xpath`/`name` → Selenium `By`. **This is what makes auto-heal a JSON edit, never a code edit.** | `Support/LocatorRepository.cs` |
-| **Shared models** | `TestFlow`, `TestStep`, `CapturedElement`, `LocatorCandidate`, `LocatorEntry`, `PageLocators`, `ScenarioResult`, `RunSummary`, `FailureAnalysis`, `AppSettings`, `ActionType`, `ScenarioOutcome` | `src/WebTestToolkit.Contracts/Models/` |
-| **Deterministic code generator** | `TestFlowCodeGenerator.Generate(flow)` → 4 files keyed by relative path | `src/WebTestToolkit.CodeGenerator/` |
+| **Shared models** | `TestFlow`, `TestStep`, `CapturedElement` (now with DOM-context fields for future label/assertion suggestion), `LocatorCandidate`, `LocatorEntry`, `PageLocators`, `ScenarioResult`, `RunSummary`, `FailureAnalysis`, `AppSettings`, `ActionType`, `ScenarioOutcome` | `backend/WebTestToolkit.Contracts/Models/` |
+| **Deterministic code generator** | `TestFlowCodeGenerator.Generate(flow)` → 4 files keyed by relative path | `backend/WebTestToolkit.CodeGenerator/` |
 | ↳ Step planning | `GherkinStepPlanner` — assigns Given/When/Then + `And` continuation, builds binding regexes, derives method names | `GherkinStepPlanner.cs` |
 | ↳ Four emitters | `FeatureFileGenerator`, `PageObjectGenerator`, `StepsGenerator`, `LocatorJsonGenerator` — plain string building, no templating engine | *(same folder)* |
-| ↳ Verification | 5 unit tests, all passing; output verified by hand against the Phase 1 sample | `src/WebTestToolkit.CodeGenerator.Tests/` |
+| ↳ Verification | 5 unit tests, all passing; output verified by hand against the Phase 1 sample | `backend/WebTestToolkit.CodeGenerator.Tests/` |
+| **P3 — restructure & scaffold** | Repo moved to `backend/` / `frontend/` / `tests/`; WPF app retired, its `dotnet test` shell-out and solution-root discovery salvaged into `Execution` (`DotnetCli`, `SolutionPaths`, with the blocking-read deadlock risk fixed) | `backend/WebTestToolkit.Execution/` |
+| ↳ API skeleton | `WebTestToolkit.Api` (ASP.NET Core): `/api/health`, CORS opened for the Vite origin, a placeholder `PingHub` proving the SignalR pipeline | `backend/WebTestToolkit.Api/` |
+| ↳ Empty backend projects | `Llm`, `Inspector` (+ Selenium.WebDriver 4.48.0), `Execution`, `Export` (+ ClosedXML 0.105.1) — scaffolded and wired to `Contracts`/`Api`, no feature code yet | `backend/WebTestToolkit.{Llm,Inspector,Execution,Export}/` |
+| ↳ Frontend shell | React + Vite + TS, react-router, a stub page per planned feature area, typed API client, SignalR wrapper, dev-server proxy to the API | `frontend/` |
+| ↳ `CapturedElement.BestLocator` bug fix | Was throwing on an element with zero locator candidates; now nullable, and `LocatorJsonGenerator` skips such elements instead of crashing | `Contracts` / `CodeGenerator` |
 
-**Verified working:** `dotnet build WebTestToolkit.sln` clean (0 warnings, 0 errors);
-`dotnet test WebTestToolkit.CodeGenerator.Tests` → 5/5 passing. Generated output for a Login flow
-reproduces the hand-written sample's structure exactly.
+**Verified working:** `dotnet build WebTestToolkit.sln` clean across all 9 projects (0 warnings, 0
+errors); `dotnet test CodeGenerator.Tests` → 5/5 passing from the new path; frontend type-checks and
+builds; a live round-trip with both dev servers running confirmed `/api/health` and the SignalR hub
+negotiate both work through the Vite proxy.
 
 > **The deterministic generator is not superseded by the LLM work — it is what makes the LLM work
 > safe.** It now serves two further roles: the guaranteed-correct few-shot example inside the codegen
 > prompt, and the fallback when the LLM's output won't compile. See §3.
 
-### 🔄 Superseded
+### 🔄 Superseded (done)
 
 | Item | Disposition |
 |---|---|
-| `src/WebTestToolkit.App` (WPF) | **Retire.** Replaced by `frontend/` + `WebTestToolkit.Api`. Salvage its `dotnet test` shell-out and solution-root discovery into `WebTestToolkit.Execution` before deleting. |
-| Planned WPF windows (`InspectorWindow`, `ReportWindow`, `FailureAnalyzerWindow`, `SettingsWindow`) | Become React pages. |
-| `DispatcherTimer` polling design | Becomes a backend `BackgroundService` polling the JS queue and pushing to the frontend over SignalR. |
+| `src/WebTestToolkit.App` (WPF) | **Retired.** Replaced by `frontend/` + `WebTestToolkit.Api`. |
+| Planned WPF windows (`InspectorWindow`, `ReportWindow`, `FailureAnalyzerWindow`, `SettingsWindow`) | Become React pages — stubs exist at `frontend/src/pages/`, not yet implemented. |
+| `DispatcherTimer` polling design | Becomes a backend `BackgroundService` polling the JS queue and pushing to the frontend over SignalR — not yet built (P7). |
 | "User labels every captured step manually" | Softened to "user *confirms or edits* an LLM-suggested label" — see §3, skill 2. Manual entry remains the fallback when no API key is configured. |
 
-Nothing already built is wasted — `Contracts` and `CodeGenerator` are UI-agnostic libraries that
-carry over untouched.
+Nothing already built was wasted — `Contracts` and `CodeGenerator` carried over untouched into
+`backend/`.
 
 ### ⬜ Not yet implemented
 
 | # | Phase | Scope | Acceptance |
 |---|---|---|---|
-| **P3** | **Restructure & scaffold** | Move projects into `backend/`, scaffold `WebTestToolkit.Api` + `frontend/` (React+Vite+TS), retire WPF, move `GeneratedTests` to `tests/`, wire CORS + SignalR | `dotnet run` serves the API; `npm run dev` serves the UI; a health endpoint round-trips |
 | **P4** | **Groq foundation** | `GroqClient` transport, skill pattern, strict-schema plumbing, server-side key storage, Settings page. Failure analysis as the first skill (simplest, provable) | With a key set, a canned failure returns a plain-English root cause; with no key, the app still runs and says so |
 | **P5** | **LLM script generation + self-repair** | Codegen skill, staging compile, compiler-error feedback retry, deterministic fallback, provenance reporting | A hand-authored `TestFlow` generates code that compiles; a deliberately broken prompt exercises repair, then falls back cleanly |
 | **P6** | **Test case export** | `WebTestToolkit.Export`, Excel + XML writers, prose skill, export endpoint + UI | A hand-authored flow exports to a valid `.xlsx` that opens in Excel and an `.xml` that parses |
