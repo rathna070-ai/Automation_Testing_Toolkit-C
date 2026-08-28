@@ -11,6 +11,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebTestToolkit.App", "src\W
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebTestToolkit.Contracts", "src\WebTestToolkit.Contracts\WebTestToolkit.Contracts.csproj", "{29972ADF-30D6-4D04-8AB3-8C9F73E5B90B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebTestToolkit.CodeGenerator", "src\WebTestToolkit.CodeGenerator\WebTestToolkit.CodeGenerator.csproj", "{A9E1C445-1F10-494A-AB4C-CD32454B9669}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebTestToolkit.CodeGenerator.Tests", "src\WebTestToolkit.CodeGenerator.Tests\WebTestToolkit.CodeGenerator.Tests.csproj", "{24CF9FE7-7AAB-4BA0-A27E-B993936F1D98}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -32,10 +36,20 @@ Global
 		{29972ADF-30D6-4D04-8AB3-8C9F73E5B90B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{29972ADF-30D6-4D04-8AB3-8C9F73E5B90B}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{29972ADF-30D6-4D04-8AB3-8C9F73E5B90B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A9E1C445-1F10-494A-AB4C-CD32454B9669}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A9E1C445-1F10-494A-AB4C-CD32454B9669}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A9E1C445-1F10-494A-AB4C-CD32454B9669}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A9E1C445-1F10-494A-AB4C-CD32454B9669}.Release|Any CPU.Build.0 = Release|Any CPU
+		{24CF9FE7-7AAB-4BA0-A27E-B993936F1D98}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{24CF9FE7-7AAB-4BA0-A27E-B993936F1D98}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{24CF9FE7-7AAB-4BA0-A27E-B993936F1D98}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{24CF9FE7-7AAB-4BA0-A27E-B993936F1D98}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{B6E2BE69-DC7B-4D9C-9C14-4D472558E147} = {302F771D-4599-41A6-85D5-7C1AB42AF280}
 		{05AA3267-F2FD-4B78-B4C6-397B37AAB206} = {302F771D-4599-41A6-85D5-7C1AB42AF280}
 		{29972ADF-30D6-4D04-8AB3-8C9F73E5B90B} = {302F771D-4599-41A6-85D5-7C1AB42AF280}
+		{A9E1C445-1F10-494A-AB4C-CD32454B9669} = {302F771D-4599-41A6-85D5-7C1AB42AF280}
+		{24CF9FE7-7AAB-4BA0-A27E-B993936F1D98} = {302F771D-4599-41A6-85D5-7C1AB42AF280}
 	EndGlobalSection
 EndGlobal
