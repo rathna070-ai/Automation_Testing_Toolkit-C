@@ -1,0 +1,9 @@
+{
+  "url": "https://the-internet.herokuapp.com/login",
+  "locators": {
+    "UsernameInput": { "strategy": "id", "value": "username" },
+    "PasswordInput": { "strategy": "id", "value": "password" },
+    "LoginButton": { "strategy": "css", "value": "button[type='submit']" },
+    "FlashMessage": { "strategy": "id", "value": "flash" }
+  }
+}
