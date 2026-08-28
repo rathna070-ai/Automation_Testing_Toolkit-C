@@ -2,6 +2,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\WebTestToolkit.Contracts\WebTestToolkit.Contracts.csproj" />
+    <ProjectReference Include="..\WebTestToolkit.CodeGenerator\WebTestToolkit.CodeGenerator.csproj" />
+    <ProjectReference Include="..\WebTestToolkit.Llm\WebTestToolkit.Llm.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
   </ItemGroup>
 
   <PropertyGroup>

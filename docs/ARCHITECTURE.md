@@ -101,16 +101,31 @@ Each backend library depends only on `Contracts`. `Api` references all of them. 
 | ↳ Endpoints | `GET/PUT /api/settings` (key never returned, only whether one's set), `GET /api/llm/status`, `POST /api/failures/analyze` (always 200 — `available:false` + a reason, never a 500, when no key/bad key/model hiccup) | `Api/Controllers/{Settings,Llm}Controller.cs` |
 | ↳ Settings page | Real implementation: save key/model, live "Try it" panel that analyzes a canned failure through the actual pipeline | `frontend/src/pages/SettingsPage.tsx` |
 | ↳ `FailureAnalysis` model extended | `Category` enum, `SuggestedLocatorFix`, `Confidence`, `IsLikelyApplicationBug`, `Model` — matches the strict schema Groq is asked to fill in | `Contracts/Models/FailureAnalysis.cs` |
+| **P5 — LLM codegen + self-repair** | `HybridTestCodeGenerator` — deterministic baseline first (free, and the prompt's reference implementation), then LLM, then static validation, then a real sandbox compile, then compiler-error-fed repair turns, then deterministic fallback. Provenance recorded per attempt | `Execution/Generation/HybridTestCodeGenerator.cs` |
+| ↳ Skills | `ScriptGenerationSkill` (high reasoning effort, 8192-token cap) and `ScriptRepairSkill` — repair is a genuine multi-turn continuation replaying the original request and the model's own prior answer | `Llm/Skills/` |
+| ↳ Static guardrails | `StaticValidator` — path whitelist, **hardcoded-`By` ban** (the auto-heal invariant), locator-strategy enum, locator closure, forbidden patterns (`Thread.Sleep`, hooks, driver construction), Gherkin sanity, and `BindingIndex` conflict detection for ambiguous Reqnroll steps | `Execution/Generation/StaticValidator.cs` |
+| ↳ Build sandbox | `BuildSandbox` — a persistent mirror under `%LOCALAPPDATA%`, outside the repo, so a bad candidate can never break the user's real suite. Incremental, restore cached, Windows file-locking handled | `Execution/Generation/BuildSandbox.cs` |
+| ↳ Compiler feedback | `MsBuildErrorParser` — relative paths, dedupe, cap at 25, plus ±2 lines of source context around each error to make repairs land | `Execution/Generation/MsBuildErrorParser.cs` |
+| ↳ Locator files | `LocatorFileBuilder` — the toolkit serializes `.locators.json`, never the model, so the shape stays byte-identical to what `LocatorRepository` and future auto-heal expect | `Execution/Generation/LocatorFileBuilder.cs` |
+| ↳ Endpoints + UI | `POST /api/flows/preview` (full pipeline, writes nothing) and `/generate`; Flows page with provenance badge, attempts drawer, and a deterministic-vs-AI compare view | `Api/Controllers/FlowsController.cs`, `frontend/src/pages/FlowsPage.tsx` |
 
-**Verified working:** `dotnet build WebTestToolkit.sln` clean across all 11 projects (0 warnings, 0
-errors); `dotnet test CodeGenerator.Tests` → 5/5, `dotnet test Llm.Tests` → 13/13 (transport request
-shape, 401/429/truncated/malformed-body handling, no-key propagation, schema parsing — all against
-stubbed HTTP, no real key needed); frontend type-checks and builds; and two live checks against the
-running API: the no-key path (`POST /api/failures/analyze` → `200 {available:false, unavailableReason:
-"No Groq API key is configured..."}`, never a 500) and, with a deliberately invalid real key saved
-through `PUT /api/settings`, an actual round-trip to Groq that came back `401` and was mapped to the
-same graceful shape. A real analysis (valid key → an actual root-cause explanation) hasn't been
-exercised live yet — that needs an API key from the user.
+**Verified working:** `dotnet build WebTestToolkit.sln` clean across all 12 projects (0 warnings, 0
+errors). Tests: `CodeGenerator.Tests` 5/5, `Llm.Tests` 13/13, `Execution.Tests` 27/27, and the
+original Selenium suite 2/2 — 47 in total.
+
+The P5 orchestrator tests are the load-bearing ones: they fake only the model and drive the **real
+compiler**, proving the first attempt failing to compile → compiler errors fed back → second attempt
+compiling (`LlmRepaired`), a hardcoded `By` being rejected *before* a build is spent, and every
+attempt failing still leaving the user with compiling deterministic output.
+
+End-to-end, against the running API: a hand-authored flow generated four files, compiled in the
+sandbox, was written to `tests/`, and **the generated Reqnroll/Selenium test then actually ran and
+passed against the live practice site** — real Chrome, all five BDD steps executing. `POST
+/api/flows/preview` was confirmed to write nothing. With no key configured, `useLlm:true` falls back
+to deterministic with a clear reason rather than failing.
+
+Not yet exercised live: a *successful* Groq call (generation or analysis) with a valid API key —
+that path is covered only by tests using stubbed responses in Groq's documented shape.
 
 > **The deterministic generator is not superseded by the LLM work — it is what makes the LLM work
 > safe.** It now serves two further roles: the guaranteed-correct few-shot example inside the codegen
@@ -132,7 +147,6 @@ Nothing already built was wasted — `Contracts` and `CodeGenerator` carried ove
 
 | # | Phase | What it adds | Acceptance |
 |---|---|---|---|
-| **P5** | **LLM script generation + self-repair** | Codegen skill, staging compile, compiler-error feedback retry, deterministic fallback, provenance reporting | A hand-authored `TestFlow` generates code that compiles; a deliberately broken prompt exercises repair, then falls back cleanly |
 | **P6** | **Test case export** | `WebTestToolkit.Export`, Excel + XML writers, prose skill, export endpoint + UI | A hand-authored flow exports to a valid `.xlsx` that opens in Excel and an `.xml` that parses |
 | **P7** | **Inspector backend** | `InspectorSession` (own `ChromeDriver`), injected JS overlay (hover-highlight, click-capture, idempotent re-injection for SPA navigations), `LocatorRanker` (id > data-testid > name > css > xpath), session manager, polling `BackgroundService` → SignalR | `POST /api/inspect/start` opens Chrome; clicking an element pushes a live event to a connected client |
 | **P8** | **Inspect UI + label suggestions** | React inspect page, live step list over SignalR, label dialog pre-filled by LLM skill 2 | A capture session produces a labeled `TestFlow` in the browser; suggestions appear but stay editable, and absent-LLM still works |
@@ -146,11 +160,11 @@ before any browser automation exists — the same trick that made the determinis
 
 ### Effort, ETA, and model estimates
 
-**These are estimates, not measured data.** P1–P4 are the real data points so far — roughly 6 hours
-for P1–P3, and P4 (this session) landed comfortably inside its 6–8 hr estimate: full transport +
-skill layer + server-side key storage + two controllers + a real Settings page + 13 passing tests,
-verified live against actual Groq responses (a genuine 401 included). Treat the remaining rows as a
-planning input to keep revisiting, not a commitment — ETA below restarts from "now" since P4 is done.
+**These are estimates, not measured data.** P1–P5 are the real data points so far — roughly 6 hours
+for P1–P3, P4 comfortably inside its 6–8 hr estimate, and P5 (the phase flagged as riskiest) also
+landing inside its 12–16 hr estimate on Opus 5. The sandbox/file-locking work that was expected to
+be the time sink went in cleanly, largely because `DotnetCli` already set
+`MSBUILDDISABLENODEREUSE=1` from P3. ETA below restarts from "now".
 
 Assumptions: "Effort" is focused build time (implementation + your review/testing), not wall-clock.
 "ETA" is cumulative calendar time from now assuming a **part-time pace of ~2 sessions/week at 3–4
@@ -161,15 +175,14 @@ phase.
 
 | # | Phase | Effort (hrs) | ETA (cumulative) | Tokens/session | Model |
 |---|---|---|---|---|---|
-| **P5** | LLM codegen + self-repair | 12–16 | Week 2 | ~350–450K | **Opus 5** — staging-compile + retry-loop debugging, incl. Windows file-locking, is the riskiest logic in the plan |
-| **P6** | Test case export | 4–6 | Week 3 | ~100K | Sonnet 5 |
-| **P7** | Inspector backend | 10–14 | Week 5 | ~250–300K | **Opus 5** — JS-injection/Selenium interplay is fiddly to debug; Sonnet 5 is fine once the pattern is proven |
-| **P8** | Inspect UI + label suggestions | 8–10 | Week 6 | ~150K | Sonnet 5 |
-| **P9** | Generate end-to-end (+ assertions/edge cases/outlines) | 14–18 | Week 8 | ~300–400K | Sonnet 5 |
-| **P10** | Execution + Report | 10–12 | Week 10 | ~200K | Sonnet 5 |
-| **P11** | Failure analyzer UI | 4–6 | Week 11 | ~100K | Sonnet 5 (Haiku 4.5 viable — mostly UI wiring onto an existing skill) |
-| **P12** | Auto-heal | 6–8 | Week 12 | ~150K | Sonnet 5 |
-| | **Total remaining** | **~68–90 hrs** | **~12 weeks** | | |
+| **P6** | Test case export | 4–6 | Week 1 | ~100K | Sonnet 5 |
+| **P7** | Inspector backend | 10–14 | Week 3 | ~250–300K | **Opus 5** — JS-injection/Selenium interplay is fiddly to debug; Sonnet 5 is fine once the pattern is proven |
+| **P8** | Inspect UI + label suggestions | 8–10 | Week 4 | ~150K | Sonnet 5 |
+| **P9** | Generate end-to-end (+ assertions/edge cases/outlines) | 14–18 | Week 6 | ~300–400K | Sonnet 5 |
+| **P10** | Execution + Report | 10–12 | Week 8 | ~200K | Sonnet 5 |
+| **P11** | Failure analyzer UI | 4–6 | Week 9 | ~100K | Sonnet 5 (Haiku 4.5 viable — mostly UI wiring onto an existing skill) |
+| **P12** | Auto-heal | 6–8 | Week 10 | ~150K | Sonnet 5 |
+| | **Total remaining** | **~56–74 hrs** | **~10 weeks** | | |
 
 Two things worth knowing about the model column: Sonnet 5 is the default here because it's what
 this whole project has been built with and it's handled everything so far without trouble. The two

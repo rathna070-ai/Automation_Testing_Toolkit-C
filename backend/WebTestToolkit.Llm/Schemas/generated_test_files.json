@@ -1,0 +1,46 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["files", "locators", "summary"],
+  "properties": {
+    "files": {
+      "type": "array",
+      "description": "The complete set of generated files. Never a patch or a diff.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "content"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Relative path. Exactly one of: Features/<Flow>.feature, Steps/<Flow>Steps.cs, PageObjects/<PageName>.cs. Never Support/, never a .csproj, never a .locators.json, never contains '..'."
+          },
+          "content": {
+            "type": "string",
+            "description": "Complete file content. No markdown code fences. Never truncated, never uses '...' elisions."
+          }
+        }
+      }
+    },
+    "locators": {
+      "type": "array",
+      "description": "Every locator the page objects reference. These are serialized into the .locators.json files by the toolkit, not by you.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["page", "key", "strategy", "value", "url"],
+        "properties": {
+          "page": { "type": "string", "description": "Page object class name, e.g. LoginPage." },
+          "key": { "type": "string", "description": "PascalCase locator key, e.g. UsernameInput." },
+          "strategy": { "type": "string", "enum": ["id", "css", "xpath", "name"] },
+          "value": { "type": "string" },
+          "url": { "type": "string", "description": "The URL this page object navigates to." }
+        }
+      }
+    },
+    "summary": {
+      "type": "string",
+      "description": "One or two sentences on what you generated and anything the user should check."
+    }
+  }
+}

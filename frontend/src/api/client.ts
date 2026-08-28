@@ -65,6 +65,55 @@ export interface AnalyzeFailureResponse {
   unavailableReason: string | null
 }
 
+export interface GeneratedFile {
+  relativePath: string
+  content: string
+}
+
+export interface ValidationIssue {
+  source: 'static' | 'compiler' | 'transport'
+  code: string
+  file: string | null
+  line: number | null
+  message: string
+}
+
+export interface GenerationAttempt {
+  number: number
+  kind: 'deterministic' | 'llmInitial' | 'llmRepair'
+  model: string | null
+  succeeded: boolean
+  durationMs: number
+  promptTokens: number
+  completionTokens: number
+  issues: ValidationIssue[]
+}
+
+export type GenerationSource =
+  | 'Deterministic'
+  | 'LlmVerified'
+  | 'LlmRepaired'
+  | 'DeterministicFallback'
+  | 'Failed'
+
+export interface GenerateFlowResponse {
+  source: GenerationSource
+  files: GeneratedFile[]
+  deterministicFiles: GeneratedFile[]
+  attempts: GenerationAttempt[]
+  fallbackReason: string | null
+  writtenPaths: string[]
+  totalPromptTokens: number
+  totalCompletionTokens: number
+  totalDurationMs: number
+}
+
+export interface GenerateFlowRequest {
+  flow: unknown
+  useLlm: boolean
+  maxRepairAttempts?: number
+}
+
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(path)
   if (!response.ok) {
@@ -103,4 +152,14 @@ export function getLlmStatus(): Promise<LlmStatusResponse> {
 
 export function analyzeFailure(scenario: ScenarioResultInput): Promise<AnalyzeFailureResponse> {
   return sendJson<AnalyzeFailureResponse>('/api/failures/analyze', 'POST', scenario)
+}
+
+// Runs the full pipeline including the sandbox compile, but writes nothing — so the user
+// can see verified output before it lands in the test project.
+export function previewFlow(request: GenerateFlowRequest): Promise<GenerateFlowResponse> {
+  return sendJson<GenerateFlowResponse>('/api/flows/preview', 'POST', request)
+}
+
+export function generateFlow(request: GenerateFlowRequest): Promise<GenerateFlowResponse> {
+  return sendJson<GenerateFlowResponse>('/api/flows/generate', 'POST', request)
 }

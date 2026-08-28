@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using WebTestToolkit.Api.Hubs;
 using WebTestToolkit.Api.Services;
+using WebTestToolkit.Execution.Generation;
 using WebTestToolkit.Llm;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -23,6 +24,13 @@ builder.Services.AddSignalR();
 builder.Services.AddSingleton<ISettingsStore, FileSettingsStore>();
 builder.Services.AddScoped<IGroqSettingsProvider, ApiGroqSettingsProvider>();
 builder.Services.AddWebTestToolkitLlm();
+
+// Singleton: the sandbox owns one warm directory and serializes access to it, so
+// concurrent generations queue rather than trampling each other's build output.
+builder.Services.AddSingleton<BuildSandbox>();
+builder.Services.AddSingleton<ReferenceBundleBuilder>();
+builder.Services.AddSingleton<GeneratedProjectWriter>();
+builder.Services.AddScoped<HybridTestCodeGenerator>();
 
 // The Vite dev server runs on a different origin (localhost:5173) than the API
 // (localhost:5000). SignalR needs credentials for its handshake, so the policy has to

@@ -35,14 +35,19 @@ public abstract class LlmSkill<TInput, TOutput>
 
     protected abstract string BuildUserMessage(TInput input);
 
+    // Defaults to a plain system + user exchange. Overridden by skills that need a
+    // multi-turn conversation — repair replays the original request and the model's own
+    // previous answer before asking for a fix.
+    protected virtual IReadOnlyList<ChatMessage> BuildMessages(TInput input, string systemPrompt) =>
+        [ChatMessage.System(systemPrompt), ChatMessage.User(BuildUserMessage(input))];
+
     public async Task<SkillResult<TOutput>> RunAsync(TInput input, CancellationToken ct = default)
     {
         var systemPrompt = _prompts.GetPrompt(PromptName);
         var schema = _prompts.GetSchema(SchemaName);
-        var userMessage = BuildUserMessage(input);
 
         var request = new ChatRequest(
-            Messages: [ChatMessage.System(systemPrompt), ChatMessage.User(userMessage)],
+            Messages: BuildMessages(input, systemPrompt),
             SchemaName: SchemaName,
             Schema: schema,
             ReasoningEffort: ReasoningEffort,

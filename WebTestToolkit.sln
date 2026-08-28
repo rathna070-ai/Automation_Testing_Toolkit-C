@@ -27,6 +27,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebTestToolkit.GeneratedTes
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebTestToolkit.Llm.Tests", "backend\WebTestToolkit.Llm.Tests\WebTestToolkit.Llm.Tests.csproj", "{17352E65-F11B-45A5-9DB2-2D8899B52379}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebTestToolkit.Execution.Tests", "backend\WebTestToolkit.Execution.Tests\WebTestToolkit.Execution.Tests.csproj", "{7408942C-7AD9-46CA-BAEE-49C1F7355897}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -76,6 +78,10 @@ Global
 		{17352E65-F11B-45A5-9DB2-2D8899B52379}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{17352E65-F11B-45A5-9DB2-2D8899B52379}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{17352E65-F11B-45A5-9DB2-2D8899B52379}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7408942C-7AD9-46CA-BAEE-49C1F7355897}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7408942C-7AD9-46CA-BAEE-49C1F7355897}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7408942C-7AD9-46CA-BAEE-49C1F7355897}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7408942C-7AD9-46CA-BAEE-49C1F7355897}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{88753189-0B85-4FD5-B82E-9D1D3A800516} = {52D6414C-700C-4EB2-8EC4-654966B0DC63}
@@ -88,5 +94,6 @@ Global
 		{99CCF064-09F5-4DBF-8F1B-394C1422944F} = {52D6414C-700C-4EB2-8EC4-654966B0DC63}
 		{A46AB879-151E-4E98-924B-523670ECC43C} = {5D63ED31-AF3D-4B4F-9C91-D51C1AC4F308}
 		{17352E65-F11B-45A5-9DB2-2D8899B52379} = {52D6414C-700C-4EB2-8EC4-654966B0DC63}
+		{7408942C-7AD9-46CA-BAEE-49C1F7355897} = {52D6414C-700C-4EB2-8EC4-654966B0DC63}
 	EndGlobalSection
 EndGlobal
