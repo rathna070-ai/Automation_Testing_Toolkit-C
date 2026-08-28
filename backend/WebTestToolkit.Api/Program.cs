@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using WebTestToolkit.Api.Hubs;
 using WebTestToolkit.Api.Services;
 using WebTestToolkit.Execution.Generation;
+using WebTestToolkit.Inspector;
 using WebTestToolkit.Llm;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -19,7 +20,12 @@ builder.Services.AddControllers()
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-builder.Services.AddSignalR();
+// SignalR has its own JSON options, entirely separate from MVC's. Without this, the very
+// same InspectorEvent goes out as {"actionType":2} over the hub and {"actionType":"type"}
+// over REST, and every client has to handle both shapes.
+builder.Services.AddSignalR()
+    .AddJsonProtocol(o => o.PayloadSerializerOptions.Converters.Add(
+        new JsonStringEnumConverter(JsonNamingPolicy.CamelCase)));
 
 builder.Services.AddSingleton<ISettingsStore, FileSettingsStore>();
 builder.Services.AddScoped<IGroqSettingsProvider, ApiGroqSettingsProvider>();
@@ -31,6 +37,11 @@ builder.Services.AddSingleton<BuildSandbox>();
 builder.Services.AddSingleton<ReferenceBundleBuilder>();
 builder.Services.AddSingleton<GeneratedProjectWriter>();
 builder.Services.AddScoped<HybridTestCodeGenerator>();
+
+// Browser sessions outlive the request that opened them; the manager is a singleton and
+// closes any still-open Chrome windows when the host shuts down.
+builder.Services.AddWebTestToolkitInspector();
+builder.Services.AddHostedService<InspectorBroadcastService>();
 
 // The Vite dev server runs on a different origin (localhost:5173) than the API
 // (localhost:5000). SignalR needs credentials for its handshake, so the policy has to
@@ -63,6 +74,7 @@ app.UseAuthorization();
 
 app.MapControllers();
 app.MapHub<PingHub>("/hubs/ping");
+app.MapHub<InspectHub>("/hubs/inspect");
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok", utc = DateTime.UtcNow }))
     .WithName("Health");

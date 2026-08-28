@@ -91,7 +91,7 @@ Each backend library depends only on `Contracts`. `Api` references all of them. 
 | ↳ Verification | 5 unit tests, all passing; output verified by hand against the Phase 1 sample | `backend/WebTestToolkit.CodeGenerator.Tests/` |
 | **P3 — restructure & scaffold** | Repo moved to `backend/` / `frontend/` / `tests/`; WPF app retired, its `dotnet test` shell-out and solution-root discovery salvaged into `Execution` (`DotnetCli`, `SolutionPaths`, with the blocking-read deadlock risk fixed) | `backend/WebTestToolkit.Execution/` |
 | ↳ API skeleton | `WebTestToolkit.Api` (ASP.NET Core): `/api/health`, CORS opened for the Vite origin, a placeholder `PingHub` proving the SignalR pipeline | `backend/WebTestToolkit.Api/` |
-| ↳ Empty backend projects | `Llm`, `Inspector` (+ Selenium.WebDriver 4.48.0), `Execution`, `Export` (+ ClosedXML 0.105.1) — scaffolded and wired to `Contracts`/`Api`, no feature code yet | `backend/WebTestToolkit.{Llm,Inspector,Execution,Export}/` |
+| ↳ Empty backend projects | `Llm`, `Inspector` (+ Selenium.WebDriver 4.48.0), `Execution`, `Export` (+ ClosedXML 0.105.1) — scaffolded and wired to `Contracts`/`Api`. All but `Export` have since been filled in (P4/P5/P7); `Export` is still a shell awaiting P6 | `backend/WebTestToolkit.{Llm,Inspector,Execution,Export}/` |
 | ↳ Frontend shell | React + Vite + TS, react-router, a stub page per planned feature area, typed API client, SignalR wrapper, dev-server proxy to the API | `frontend/` |
 | ↳ `CapturedElement.BestLocator` bug fix | Was throwing on an element with zero locator candidates; now nullable, and `LocatorJsonGenerator` skips such elements instead of crashing | `Contracts` / `CodeGenerator` |
 | **P4 — Groq foundation** | `GroqClient` (hand-rolled HTTP, no SDK) against Groq's OpenAI-compatible endpoint, strict `json_schema` structured outputs, per-request auth (never mutates shared client state) | `backend/WebTestToolkit.Llm/Transport/` |
@@ -108,10 +108,19 @@ Each backend library depends only on `Contracts`. `Api` references all of them. 
 | ↳ Compiler feedback | `MsBuildErrorParser` — relative paths, dedupe, cap at 25, plus ±2 lines of source context around each error to make repairs land | `Execution/Generation/MsBuildErrorParser.cs` |
 | ↳ Locator files | `LocatorFileBuilder` — the toolkit serializes `.locators.json`, never the model, so the shape stays byte-identical to what `LocatorRepository` and future auto-heal expect | `Execution/Generation/LocatorFileBuilder.cs` |
 | ↳ Endpoints + UI | `POST /api/flows/preview` (full pipeline, writes nothing) and `/generate`; Flows page with provenance badge, attempts drawer, and a deterministic-vs-AI compare view | `Api/Controllers/FlowsController.cs`, `frontend/src/pages/FlowsPage.tsx` |
+| **P7 — Inspector backend** | `InspectorSession` — one hand-driven Chrome window per session. Every WebDriver touch is serialized behind a semaphore (the session is reached from both HTTP requests and the polling service); a closed browser window is treated as a normal end, not a crash | `backend/WebTestToolkit.Inspector/InspectorSession.cs` |
+| ↳ Injected overlay | `Overlay/inspector-overlay.js` (embedded resource) — hover highlight, capture-phase click/change listeners, idempotent re-injection after full page loads, and **a sessionStorage-backed queue so a click that navigates away is not lost**. It never calls `preventDefault`/`stopPropagation`: the user has to be able to walk the real flow while we watch | `Inspector/Overlay/` |
+| ↳ Candidate proposal vs. ranking | The overlay *proposes* locators (only it can check uniqueness against the live DOM); `LocatorRanker` *scores* them (`id` 100 > `data-testid` 95 > `name` 85 > `aria-label` 78 > `placeholder` 72 > text-xpath 60 > **generated id 45** > css path 35 > absolute xpath 10). Framework-generated ids (`:r3:`, `ember512`, GUIDs) are detected and scored below real attributes. Strategies outside `id/css/xpath/name` are dropped, so `LocatorRepository.ToBy` can never throw | `Inspector/Capture/LocatorRanker.cs` |
+| ↳ Deterministic naming | `StepLabeler` — page name from URL (skipping record ids: `/orders/48213/edit` → `OrdersEditPage`), locator keys unique per page (`RemoveButton`, `RemoveButton2`), and Gherkin-voice labels. Never echoes a password into step text. This is the no-API-key path; LLM skill 2 (P8) improves on it | `Inspector/Capture/StepLabeler.cs` |
+| ↳ Session manager | `InspectorSessionManager` (singleton) — concurrency cap, idle timeout closing forgotten browsers, retention of stopped sessions so their steps stay readable, and disposal on host shutdown so Ctrl+C leaves no orphaned Chrome | `Inspector/InspectorSessionManager.cs` |
+| ↳ Live feed | `InspectorBroadcastService` (`BackgroundService`) polls each session and pushes to `InspectHub` groups; SignalR's JSON protocol configured with the same camelCase enum converter as MVC, so the hub and REST no longer disagree on the wire shape | `Api/Services/InspectorBroadcastService.cs`, `Api/Hubs/InspectHub.cs` |
+| ↳ Endpoints | `GET /api/inspect/sessions`, `POST /start`, `GET /{id}`, `POST /{id}/capture` (pause/resume), `POST /{id}/stop`, `PATCH`/`DELETE /{id}/steps/{n}`, `GET /{id}/flow`. Chrome failing to launch returns a 502 that says so, not an opaque 500 | `Api/Controllers/InspectController.cs` |
+| ↳ Typed client | `frontend/src/api/inspect.ts` — REST wrappers plus `connectInspectFeed`, which re-sends `Subscribe` on reconnect (SignalR restores the connection but *not* group membership) | `frontend/src/api/inspect.ts` |
 
-**Verified working:** `dotnet build WebTestToolkit.sln` clean across all 12 projects (0 warnings, 0
-errors). Tests: `CodeGenerator.Tests` 5/5, `Llm.Tests` 13/13, `Execution.Tests` 27/27, and the
-original Selenium suite 2/2 — 47 in total.
+**Verified working:** `dotnet build WebTestToolkit.sln` clean across all 13 projects (0 warnings, 0
+errors). Tests: `CodeGenerator.Tests` 5/5, `Llm.Tests` 13/13, `Execution.Tests` 43/43,
+`Inspector.Tests` 35/35, and the original Selenium suite 2/2 — **98 in total**, plus 4 opt-in
+browser tests (`--filter "Category=Browser"`) that drive real Chrome.
 
 The P5 orchestrator tests are the load-bearing ones: they fake only the model and drive the **real
 compiler**, proving the first attempt failing to compile → compiler errors fed back → second attempt
@@ -123,6 +132,20 @@ sandbox, was written to `tests/`, and **the generated Reqnroll/Selenium test the
 passed against the live practice site** — real Chrome, all five BDD steps executing. `POST
 /api/flows/preview` was confirmed to write nothing. With no key configured, `useLlm:true` falls back
 to deterministic with a clear reason rather than failing.
+
+**P7 end-to-end, against the running API:** a SignalR client connected to `/hubs/inspect`,
+`POST /api/inspect/start` opened Chrome on a local page, and the two interactions on that page
+arrived as live `stepCaptured` events — correctly typed (`type` / `click`), named
+(`EmailAddressInput`, `ContinueButton`), labeled ("I enter the email address") and ranked (score
+100, `id`). `GET /{id}/flow` then fed straight into `POST /api/flows/preview`, which produced four
+files that passed static validation with zero issues. `POST /{id}/stop` closed the browser, and no
+`chromedriver.exe` survived the run.
+
+The four opt-in browser tests cover what only a real browser can prove: a full type→type→click
+login flow surviving the form submit that destroys the JS context; a retyped field collapsing into
+one step rather than generating a typo-then-correction; pause suppressing capture without closing
+the browser; and a user-initiated navigation being recorded while a click-caused one is *not*
+(recording it would make the generated test navigate directly and skip the login itself).
 
 Not yet exercised live: a *successful* Groq call (generation or analysis) with a valid API key —
 that path is covered only by tests using stubbed responses in Groq's documented shape.
@@ -137,7 +160,7 @@ that path is covered only by tests using stubbed responses in Groq's documented 
 |---|---|
 | `src/WebTestToolkit.App` (WPF) | **Retired.** Replaced by `frontend/` + `WebTestToolkit.Api`. |
 | Planned WPF windows (`InspectorWindow`, `ReportWindow`, `FailureAnalyzerWindow`, `SettingsWindow`) | Become React pages — stubs exist at `frontend/src/pages/`, not yet implemented. |
-| `DispatcherTimer` polling design | Becomes a backend `BackgroundService` polling the JS queue and pushing to the frontend over SignalR — not yet built (P7). |
+| `DispatcherTimer` polling design | **Built (P7).** `InspectorBroadcastService` polls each session's JS queue and pushes to the frontend over SignalR. |
 | "User labels every captured step manually" | Softened to "user *confirms or edits* an LLM-suggested label" — see §3, skill 2. Manual entry remains the fallback when no API key is configured. |
 
 Nothing already built was wasted — `Contracts` and `CodeGenerator` carried over untouched into
@@ -148,15 +171,16 @@ Nothing already built was wasted — `Contracts` and `CodeGenerator` carried ove
 | # | Phase | What it adds | Acceptance |
 |---|---|---|---|
 | **P6** | **Test case export** | `WebTestToolkit.Export`, Excel + XML writers, prose skill, export endpoint + UI | A hand-authored flow exports to a valid `.xlsx` that opens in Excel and an `.xml` that parses |
-| **P7** | **Inspector backend** | `InspectorSession` (own `ChromeDriver`), injected JS overlay (hover-highlight, click-capture, idempotent re-injection for SPA navigations), `LocatorRanker` (id > data-testid > name > css > xpath), session manager, polling `BackgroundService` → SignalR | `POST /api/inspect/start` opens Chrome; clicking an element pushes a live event to a connected client |
 | **P8** | **Inspect UI + label suggestions** | React inspect page, live step list over SignalR, label dialog pre-filled by LLM skill 2 | A capture session produces a labeled `TestFlow` in the browser; suggestions appear but stay editable, and absent-LLM still works |
 | **P9** | **Generate end-to-end** | Wire Inspect → Generate, plus assertion inference, edge cases, and Scenario Outlines with their accept/reject review UI | Inspect the demo login page → Generate → files written → `dotnet build` green → test runs |
 | **P10** | **Execution + Report** | `dotnet test --logger trx`, `TrxParser` → `RunSummary`, `[AfterStep]` screenshots, live console over SignalR, report page + CSV/HTML export | Run & Report shows correct pass/fail counts and exports openable files |
 | **P11** | **Failure analyzer UI** | Failed-scenario list, error + stack trace + screenshot, Groq explanation (skill built in P4) | Analyzing a real failure returns a useful root cause in seconds |
 | **P12** | **Auto-heal** | Locator picker, single-capture re-inspect session, `LocatorJsonPatcher` rewrites one JSON entry | Break a locator → heal it → `git diff` shows zero `.cs` changes → test passes |
 
-P4–P6 all work off hand-authored `TestFlow` fixtures, so substantial LLM and export work lands
-before any browser automation exists — the same trick that made the deterministic generator testable.
+P6 still works off hand-authored `TestFlow` fixtures — the same trick that made the deterministic
+generator testable, and the reason the LLM and export work could land before any browser automation
+existed. With P7 built, the Inspector now produces those flows for real, so P6 can be validated
+against a genuinely captured flow rather than a fixture.
 
 ### Effort, ETA, and model estimates
 
@@ -176,13 +200,12 @@ phase.
 | # | Phase | Effort (hrs) | ETA (cumulative) | Tokens/session | Model |
 |---|---|---|---|---|---|
 | **P6** | Test case export | 4–6 | Week 1 | ~100K | Sonnet 5 |
-| **P7** | Inspector backend | 10–14 | Week 3 | ~250–300K | **Opus 5** — JS-injection/Selenium interplay is fiddly to debug; Sonnet 5 is fine once the pattern is proven |
 | **P8** | Inspect UI + label suggestions | 8–10 | Week 4 | ~150K | Sonnet 5 |
 | **P9** | Generate end-to-end (+ assertions/edge cases/outlines) | 14–18 | Week 6 | ~300–400K | Sonnet 5 |
 | **P10** | Execution + Report | 10–12 | Week 8 | ~200K | Sonnet 5 |
 | **P11** | Failure analyzer UI | 4–6 | Week 9 | ~100K | Sonnet 5 (Haiku 4.5 viable — mostly UI wiring onto an existing skill) |
 | **P12** | Auto-heal | 6–8 | Week 10 | ~150K | Sonnet 5 |
-| | **Total remaining** | **~56–74 hrs** | **~10 weeks** | | |
+| | **Total remaining** | **~46–60 hrs** | **~8 weeks** | | |
 
 Two things worth knowing about the model column: Sonnet 5 is the default here because it's what
 this whole project has been built with and it's handled everything so far without trouble. The two
@@ -323,11 +346,18 @@ exists.
 ## 5. Planned API surface
 
 ```
-Inspect     POST   /api/inspect/start          { url }            → { sessionId }
-            POST   /api/inspect/{id}/label     { label, actionType, value }
-            GET    /api/inspect/{id}/suggest   { elementRef }     → suggested label + action (skill 2)
-            POST   /api/inspect/{id}/stop
-            HUB    /hubs/inspector             → ElementCaptured events
+Inspect     GET    /api/inspect/sessions                          → InspectorSessionInfo[]     [built]
+  [built]   POST   /api/inspect/start          { name, startUrl }  → { session, steps }
+            GET    /api/inspect/{id}                               → { session, steps }
+            POST   /api/inspect/{id}/capture   { enabled }         pause / resume recording
+            POST   /api/inspect/{id}/stop                          → { session, steps }, browser closed
+            PATCH  /api/inspect/{id}/steps/{n} { label, actionType, inputValue,
+                                                 locatorKey, locatorStrategy, locatorValue }
+            DELETE /api/inspect/{id}/steps/{n}
+            GET    /api/inspect/{id}/flow                          → TestFlow (feeds /api/flows/*)
+            HUB    /hubs/inspect               Subscribe(sessionId)
+                                               → stepCaptured (InspectorEvent), sessionState
+            GET    /api/inspect/{id}/suggest   { elementRef }      → suggested label (skill 2) [P8]
 
 Flows       GET    /api/flows                                     → saved flows
             POST   /api/flows/generate         { TestFlow }       → files + provenance (LLM | repaired | fallback)

@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\WebTestToolkit.Contracts\WebTestToolkit.Contracts.csproj" />
@@ -6,6 +6,19 @@
 
   <ItemGroup>
     <PackageReference Include="Selenium.WebDriver" Version="4.48.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="8.0.2" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="WebTestToolkit.Inspector.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Embedded, not copied to output: a missing overlay would present as "inspect
+         captures nothing" rather than a file-not-found, which is far harder to diagnose. -->
+    <EmbeddedResource Include="Overlay\inspector-overlay.js" />
   </ItemGroup>
 
   <PropertyGroup>
