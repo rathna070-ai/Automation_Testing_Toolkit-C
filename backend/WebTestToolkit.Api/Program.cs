@@ -20,6 +20,11 @@ builder.Services.AddControllers()
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+// RFC 7807 shape for every unhandled exception, in every environment. Without this, a
+// Production-mode 500 comes back as an empty body and the client learns nothing; the
+// alternative (bare ASP.NET default) leaks a stack trace to whatever is calling the API.
+builder.Services.AddProblemDetails();
 // SignalR has its own JSON options, entirely separate from MVC's. Without this, the very
 // same InspectorEvent goes out as {"actionType":2} over the hub and {"actionType":"type"}
 // over REST, and every client has to handle both shapes.
@@ -62,8 +67,15 @@ var app = builder.Build();
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
+    app.UseDeveloperExceptionPage();
     app.UseSwagger();
     app.UseSwaggerUI();
+}
+else
+{
+    // Pairs with AddProblemDetails() above: an unhandled exception becomes a generic
+    // ProblemDetails 500, not the stack trace the developer page would show.
+    app.UseExceptionHandler();
 }
 
 app.UseHttpsRedirection();

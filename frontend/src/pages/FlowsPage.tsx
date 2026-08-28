@@ -53,8 +53,9 @@ export function FlowsPage() {
     <div>
       <h1>Flows</h1>
       <p>
-        Generates a Selenium + Reqnroll BDD suite from a recorded flow. Until the Inspector
-        lands (P7), this uses a built-in sample flow against the practice login site.
+        Generates a Selenium + Reqnroll BDD suite from a recorded flow. The Inspector backend
+        (P7) is live, but this page isn't wired to it yet (P8/P9) — it still runs a built-in
+        sample flow against the practice login site.
       </p>
 
       <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', margin: '1rem 0', flexWrap: 'wrap' }}>

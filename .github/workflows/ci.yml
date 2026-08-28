@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  # Stale MSBuild worker nodes can hold file locks between build/test invocations on
+  # Windows; this has bitten local development on this repo before.
+  MSBUILDDISABLENODEREUSE: "1"
+
+jobs:
+  backend:
+    # windows-latest, not ubuntu: the tool is Windows-only by design (drives local Chrome,
+    # and FileSettingsStore uses Windows DPAPI) — see AssemblyInfo.cs on WebTestToolkit.Api.
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore WebTestToolkit.sln
+
+      - name: Build
+        run: dotnet build WebTestToolkit.sln --no-restore --configuration Release
+
+      # No --filter needed: NUnit's [Explicit] attribute already excludes the 4 browser
+      # tests (InspectorSessionBrowserTests) from a plain run. They need a real Chrome
+      # profile and are meant to be run locally on demand, not in CI.
+      - name: Test
+        run: dotnet test WebTestToolkit.sln --no-build --configuration Release --logger "console;verbosity=normal"
+
+  frontend:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
+      # tsc -b && vite build — the same command a contributor runs locally, so a CI
+      # failure reproduces with one command.
+      - name: Typecheck + build
+        working-directory: frontend
+        run: npm run build

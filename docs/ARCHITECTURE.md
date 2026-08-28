@@ -55,11 +55,14 @@ WebTestToolkit/
 │   ├── WebTestToolkit.Api/                 ASP.NET Core Web API + SignalR hubs
 │   ├── WebTestToolkit.Contracts/           Shared models (zero dependencies)
 │   ├── WebTestToolkit.CodeGenerator/       Deterministic TestFlow → .feature/.cs/.json
-│   ├── WebTestToolkit.CodeGenerator.Tests/ Unit tests
+│   ├── WebTestToolkit.CodeGenerator.Tests/
 │   ├── WebTestToolkit.Llm/                 Groq client + prompt skills
+│   ├── WebTestToolkit.Llm.Tests/
 │   ├── WebTestToolkit.Inspector/           Selenium + injected JS capture overlay
+│   ├── WebTestToolkit.Inspector.Tests/     + 4 opt-in tests that drive real Chrome
 │   ├── WebTestToolkit.Execution/           dotnet test runner + .trx parsing + run reports
-│   └── WebTestToolkit.Export/              Test case docs → Excel / XML
+│   ├── WebTestToolkit.Execution.Tests/
+│   └── WebTestToolkit.Export/              Test case docs → Excel / XML   [shell only — P6]
 ├── frontend/                               React + Vite + TypeScript
 │   ├── src/pages/                          Inspect · Flows · Run · Report · Failures · Export · Settings
 │   ├── src/api/                            Typed fetch wrappers + SignalR client
@@ -70,7 +73,9 @@ WebTestToolkit/
 ```
 
 Each backend library depends only on `Contracts`. `Api` references all of them. Nothing references
-`GeneratedTests`.
+`GeneratedTests`. 12 `.csproj` in total (7 libraries + `Api`, 4 with a matching `.Tests` project —
+`Inspector` and `Export` are the odd ones out, for different reasons: `Inspector`'s test project
+exists and is green, `Export` doesn't exist yet because there's nothing to test until P6).
 
 ---
 
@@ -91,8 +96,10 @@ Each backend library depends only on `Contracts`. `Api` references all of them. 
 | ↳ Verification | 5 unit tests, all passing; output verified by hand against the Phase 1 sample | `backend/WebTestToolkit.CodeGenerator.Tests/` |
 | **P3 — restructure & scaffold** | Repo moved to `backend/` / `frontend/` / `tests/`; WPF app retired, its `dotnet test` shell-out and solution-root discovery salvaged into `Execution` (`DotnetCli`, `SolutionPaths`, with the blocking-read deadlock risk fixed) | `backend/WebTestToolkit.Execution/` |
 | ↳ API skeleton | `WebTestToolkit.Api` (ASP.NET Core): `/api/health`, CORS opened for the Vite origin, a placeholder `PingHub` proving the SignalR pipeline | `backend/WebTestToolkit.Api/` |
+| ↳ Error handling | `AddProblemDetails()` + `UseExceptionHandler()` (non-Development) / `UseDeveloperExceptionPage()` (Development) — an unhandled exception returns RFC 7807 JSON, never a bare stack trace, regardless of environment | `Api/Program.cs` |
 | ↳ Empty backend projects | `Llm`, `Inspector` (+ Selenium.WebDriver 4.48.0), `Execution`, `Export` (+ ClosedXML 0.105.1) — scaffolded and wired to `Contracts`/`Api`. All but `Export` have since been filled in (P4/P5/P7); `Export` is still a shell awaiting P6 | `backend/WebTestToolkit.{Llm,Inspector,Execution,Export}/` |
 | ↳ Frontend shell | React + Vite + TS, react-router, a stub page per planned feature area, typed API client, SignalR wrapper, dev-server proxy to the API | `frontend/` |
+| ↳ Repo hygiene | CI (`dotnet build`+`test` on Windows, `npm run lint`+`build` on Ubuntu, every push/PR to `main`), root `.editorconfig` (CRLF for `.cs` matching what's already committed, LF for the frontend), TypeScript `strict: true` (already clean — no code changes needed to turn it on) | `.github/workflows/ci.yml`, `.editorconfig`, `frontend/tsconfig.app.json` |
 | ↳ `CapturedElement.BestLocator` bug fix | Was throwing on an element with zero locator candidates; now nullable, and `LocatorJsonGenerator` skips such elements instead of crashing | `Contracts` / `CodeGenerator` |
 | **P4 — Groq foundation** | `GroqClient` (hand-rolled HTTP, no SDK) against Groq's OpenAI-compatible endpoint, strict `json_schema` structured outputs, per-request auth (never mutates shared client state) | `backend/WebTestToolkit.Llm/Transport/` |
 | ↳ Skill pattern | `LlmSkill<TInput,TOutput>` base (prompt+schema → typed result, one shared deserialize/error path) and the first concrete skill, `FailureAnalysisSkill` | `Llm/Skills/` |
@@ -107,7 +114,7 @@ Each backend library depends only on `Contracts`. `Api` references all of them. 
 | ↳ Build sandbox | `BuildSandbox` — a persistent mirror under `%LOCALAPPDATA%`, outside the repo, so a bad candidate can never break the user's real suite. Incremental, restore cached, Windows file-locking handled | `Execution/Generation/BuildSandbox.cs` |
 | ↳ Compiler feedback | `MsBuildErrorParser` — relative paths, dedupe, cap at 25, plus ±2 lines of source context around each error to make repairs land | `Execution/Generation/MsBuildErrorParser.cs` |
 | ↳ Locator files | `LocatorFileBuilder` — the toolkit serializes `.locators.json`, never the model, so the shape stays byte-identical to what `LocatorRepository` and future auto-heal expect | `Execution/Generation/LocatorFileBuilder.cs` |
-| ↳ Endpoints + UI | `POST /api/flows/preview` (full pipeline, writes nothing) and `/generate`; Flows page with provenance badge, attempts drawer, and a deterministic-vs-AI compare view | `Api/Controllers/FlowsController.cs`, `frontend/src/pages/FlowsPage.tsx` |
+| ↳ Endpoints + UI | `POST /api/flows/preview` (full pipeline, writes nothing) and `/generate`; Flows page with provenance badge, attempts drawer, and a deterministic-vs-AI compare view. Still runs against a hard-coded sample flow — wiring it to a real Inspect session is P8/P9, not a Flows-page gap | `Api/Controllers/FlowsController.cs`, `frontend/src/pages/FlowsPage.tsx` |
 | **P7 — Inspector backend** | `InspectorSession` — one hand-driven Chrome window per session. Every WebDriver touch is serialized behind a semaphore (the session is reached from both HTTP requests and the polling service); a closed browser window is treated as a normal end, not a crash | `backend/WebTestToolkit.Inspector/InspectorSession.cs` |
 | ↳ Injected overlay | `Overlay/inspector-overlay.js` (embedded resource) — hover highlight, capture-phase click/change listeners, idempotent re-injection after full page loads, and **a sessionStorage-backed queue so a click that navigates away is not lost**. It never calls `preventDefault`/`stopPropagation`: the user has to be able to walk the real flow while we watch | `Inspector/Overlay/` |
 | ↳ Candidate proposal vs. ranking | The overlay *proposes* locators (only it can check uniqueness against the live DOM); `LocatorRanker` *scores* them (`id` 100 > `data-testid` 95 > `name` 85 > `aria-label` 78 > `placeholder` 72 > text-xpath 60 > **generated id 45** > css path 35 > absolute xpath 10). Framework-generated ids (`:r3:`, `ember512`, GUIDs) are detected and scored below real attributes. Strategies outside `id/css/xpath/name` are dropped, so `LocatorRepository.ToBy` can never throw | `Inspector/Capture/LocatorRanker.cs` |
@@ -117,7 +124,7 @@ Each backend library depends only on `Contracts`. `Api` references all of them. 
 | ↳ Endpoints | `GET /api/inspect/sessions`, `POST /start`, `GET /{id}`, `POST /{id}/capture` (pause/resume), `POST /{id}/stop`, `PATCH`/`DELETE /{id}/steps/{n}`, `GET /{id}/flow`. Chrome failing to launch returns a 502 that says so, not an opaque 500 | `Api/Controllers/InspectController.cs` |
 | ↳ Typed client | `frontend/src/api/inspect.ts` — REST wrappers plus `connectInspectFeed`, which re-sends `Subscribe` on reconnect (SignalR restores the connection but *not* group membership) | `frontend/src/api/inspect.ts` |
 
-**Verified working:** `dotnet build WebTestToolkit.sln` clean across all 13 projects (0 warnings, 0
+**Verified working:** `dotnet build WebTestToolkit.sln` clean across all 12 projects (0 warnings, 0
 errors). Tests: `CodeGenerator.Tests` 5/5, `Llm.Tests` 13/13, `Execution.Tests` 43/43,
 `Inspector.Tests` 35/35, and the original Selenium suite 2/2 — **98 in total**, plus 4 opt-in
 browser tests (`--filter "Category=Browser"`) that drive real Chrome.
@@ -396,8 +403,11 @@ Beyond the committed roadmap above. Roughly ordered by value-for-effort within e
 
 ### Quick wins
 
-- **Headless toggle + multi-browser** — Firefox/Edge alongside Chrome; headless for CI.
-  `DriverContext` already centralizes driver creation, so this is small and contained.
+- **Headless toggle + multi-browser.** Half-done: the Inspector already takes a `Headless` flag
+  end-to-end (`InspectorStartRequest` → `ChromeOptions`), just with no UI control yet (P8). What's
+  still missing: the *generated tests'* own driver (`DriverContext`) has no headless option at all,
+  and neither driver-creation site supports anything but Chrome. `DriverContext` already centralizes
+  its own creation, so Firefox/Edge there is small and contained.
 - **Flow editor** — reorder, rename, or delete captured steps before generating. Today a misclick
   means re-recording the whole flow.
 - **Richer assertions** — URL, page title, attribute value, element count, CSS property, element
@@ -464,10 +474,15 @@ Beyond the committed roadmap above. Roughly ordered by value-for-effort within e
 3. **`.trx` schema unverified** for this exact Reqnroll 3.3.4 / NUnit3TestAdapter 4.5.0 / .NET 8
    combination — inspect a real `results.trx` before writing `TrxParser`.
 4. **Selenium Manager** needs outbound internet on first run and can lag Chrome releases. Two
-   independent driver-creation sites (test execution and inspector) double the exposure. Wrap both in
-   a friendly error.
-5. **Orphaned Chrome processes** — a browser session held in server memory across HTTP requests needs
-   an idle timeout and cleanup on client disconnect, or sessions accumulate.
+   independent driver-creation sites double the exposure. `InspectorSession.StartAsync` is wrapped —
+   `POST /api/inspect/start` returns a 502 with the underlying message instead of an opaque 500.
+   `DriverContext` (the *generated tests'* driver creation, `tests/.../Support/DriverContext.cs`) is
+   not — a Selenium Manager failure there still surfaces as a raw `dotnet test` failure. Worth the
+   same treatment when `Execution`'s run/report path (P10) starts parsing test output for the UI.
+5. **Orphaned Chrome processes — mitigated (P7).** `InspectorSessionManager` closes a session's
+   browser after `IdleTimeout` (default 30 min) and disposes every live session on host shutdown, so
+   Ctrl+C on the API doesn't leave Chrome running. Not yet covered: a hard process crash (not a
+   graceful shutdown) still orphans whatever Chrome/`chromedriver` processes were open at the time.
 6. **Groq model deprecation** — the model ID is a stored setting, not a constant, so this stays a
    config change rather than a code change.
 7. **Cost and latency per generation** — a high-effort codegen call plus up to N repair attempts is
@@ -477,3 +492,15 @@ Beyond the committed roadmap above. Roughly ordered by value-for-effort within e
 9. **New stack surface** — ASP.NET Core, React, TypeScript, Vite, and SignalR all arrive at once in
    P3. That is the deliberate trade for a real client/server architecture; expect that phase to be
    mostly learning curve rather than visible feature progress.
+10. **The Phase 1 sample suite depends on a live third-party site** (`the-internet.herokuapp.com`) —
+    confirmed flaky during this review: the site returned `503` and both scenarios failed on
+    `#username` timing out, with zero relation to any toolkit change. `Inspector.Tests` already
+    solves this for its own suite with a ~60-line `TinyWebServer` serving fixed local HTML
+    (`backend/WebTestToolkit.Inspector.Tests/TinyWebServer.cs`) instead of reaching the network.
+    The generated-tests sample predates that pattern and would benefit from the same fix, but it's
+    a real (if small) undertaking — a local fixture page plus rewriting `LoginPage`'s locators and
+    the `.feature` against it — not something to do silently as a drive-by.
+11. **No `LICENSE` file.** The repo is on a personal GitHub account with no license declared, which
+    defaults to "all rights reserved" under GitHub's terms — fine for a private tool, a blocker if
+    the intent is ever to open it up. This is a choice for the repo owner, not something to pick on
+    their behalf.
