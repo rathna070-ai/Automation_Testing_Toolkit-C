@@ -143,6 +143,9 @@ a matching `.Tests` project — the last gap, `Export.Tests`, closed with P6).
 | ↳ Live console + tracking | `ExecutionController` (`POST /api/execution/run` → 202 + run id; `GET /runs/{id}`, `GET /runs/latest`) runs the test process as a background task and pushes each console line to `RunHub`'s `run:{id}` SignalR group as `DotnetCli`'s `IProgress<string>` callback fires — there's nothing to poll, unlike Inspector's browser-state case, since the output is already arriving synchronously. `TestRunSession` buffers every line so a client that subscribes a moment late, or reconnects, or just refreshes, still sees the full transcript and the final `RunSummary` via `GET`, not only the live push | `Api/{Controllers/ExecutionController,Hubs/RunHub,Services/TestRunSessionManager}.cs` |
 | ↳ Run + Report pages | `RunPage.tsx` — trigger a run, watch console stream live (auto-scrolling), resumes watching an in-progress run on remount; `ReportPage.tsx` — pass/fail counts, per-scenario table (outcome, duration, error, screenshot filename), and CSV/HTML export generated **client-side** from the already-fetched `RunSummary` (no server round-trip needed — the data is already there) | `frontend/src/pages/{RunPage,ReportPage}.tsx`, `frontend/src/api/execution.ts` |
 | ↳ **Scoped down from the original description** | Kept scenario-level failure screenshots (already correct, already working) rather than adding true `[AfterStep]` capture — a screenshot after *every* step of *every* scenario is a real perf/storage cost for a benefit `[AfterScenario]` mostly already covers (you see the page at the moment it broke). Screenshot *paths* are shown in the Report table; there's no inline preview yet, because serving them would mean guessing the generated-tests project's build-configuration-specific output directory from the API process — deferred rather than hardcoded and fragile. See §6 | — |
+| **P11 — Failure analyzer UI** | `FailuresPage.tsx` — reads the same `GET /api/execution/runs/latest` P10 already built, filters `RunSummary.scenarios` to `outcome: 'failed'`, and renders each with its error, stack trace (scrollable, capped height), and screenshot filename. **Zero backend changes needed**: skill 7 (`FailureAnalysisSkill`) and `POST /api/failures/analyze` were already complete since P4 — this phase was exactly what §2's estimate table called it, UI wiring onto an existing skill | `frontend/src/pages/FailuresPage.tsx` |
+| ↳ Per-failure "Analyze with Groq" | Calls the existing endpoint with that one `ScenarioResult`, on request rather than automatically for every failure — an LLM call has real latency/cost, and not every failure needs an explanation once the error message alone is enough. Same no-API-key discipline as skill 2/4: a `GET /api/llm/status` check on load shows an upfront note rather than letting the user discover unavailability only after clicking | `frontend/src/pages/FailuresPage.tsx` |
+| ↳ Bug found and fixed while verifying live | The error-message `<p>` had no `overflow-wrap`, so a long unbroken token (a CSS selector inside a `NoSuchElementException` message, no spaces to break on) pushed the whole page into horizontal scroll instead of wrapping inside its own card — only visible once a *real* failure with a *real* Selenium error was rendered, not from static review. Fixed with `overflowWrap: 'anywhere'`; the identical latent bug existed in `ReportPage.tsx`'s error cell (same unwrapped text, just never exercised with a long enough error to notice) and was fixed there too | `frontend/src/pages/{FailuresPage,ReportPage}.tsx` |
 
 **Verified working:** `dotnet build WebTestToolkit.sln` clean across all 15 projects (0 warnings, 0
 errors). Tests: `CodeGenerator.Tests` 5/5, `Llm.Tests` 26/26, `Execution.Tests` 54/54,
@@ -205,10 +208,18 @@ login site (~44s total, two real Chrome sessions). `/report` then showed both sc
 feature name (`Login`, recovered from the `.trx`'s `LoginFeature` class name), scenario names,
 outcomes, and durations, plus working `Export .csv`/`Export .html` buttons.
 
+**P11 end-to-end, in a real browser, against a real failure:** the P10 walkthrough's demo
+credentials happened to succeed both times, so verifying the Failures page needed a genuine failing
+run — the `UsernameInput` locator was deliberately pointed at a nonexistent id, a real `dotnet test`
+run produced two real `NoSuchElementException` failures with real stack traces and real screenshots,
+and `/failures` correctly listed both, with the exact error text, a scrollable stack trace, and the
+screenshot filename. Clicking "Analyze with Groq" (no key configured) returned the correct graceful
+message inline, per-card, without disturbing the other card's state. The locator was reverted
+immediately after and `git diff` confirmed clean before anything else touched that file.
+
 Not yet exercised live: a *successful* Groq call (generation, edge-case suggestion, or analysis)
-with a valid API key, and a Report row for a *failed* scenario (the practice site's demo credentials
-happened to succeed both times) — both paths are covered only by tests using stubbed/fixture
-responses in the provider's or NUnit's real documented shape.
+with a valid API key — that path is covered only by tests using stubbed/fixture responses in the
+provider's real documented shape.
 
 > **The deterministic generator is not superseded by the LLM work — it is what makes the LLM work
 > safe.** It now serves two further roles: the guaranteed-correct few-shot example inside the codegen
@@ -219,7 +230,7 @@ responses in the provider's or NUnit's real documented shape.
 | Item | Disposition |
 |---|---|
 | `src/WebTestToolkit.App` (WPF) | **Retired.** Replaced by `frontend/` + `WebTestToolkit.Api`. |
-| Planned WPF windows (`InspectorWindow`, `ReportWindow`, `FailureAnalyzerWindow`, `SettingsWindow`) | Become React pages — stubs exist at `frontend/src/pages/`, not yet implemented. |
+| Planned WPF windows (`InspectorWindow`, `ReportWindow`, `FailureAnalyzerWindow`, `SettingsWindow`) | Became React pages — `InspectPage`, `ReportPage`, `FailuresPage`, and `SettingsPage` are all built (P8/P10/P11/P4). Only `AutoHealPage`-equivalent (P12) remains a stub. |
 | `DispatcherTimer` polling design | **Built (P7).** `InspectorBroadcastService` polls each session's JS queue and pushes to the frontend over SignalR. |
 | "User labels every captured step manually" | Softened to "user *confirms or edits* an LLM-suggested label" — see §3, skill 2. Manual entry remains the fallback when no API key is configured. |
 
@@ -230,14 +241,11 @@ Nothing already built was wasted — `Contracts` and `CodeGenerator` carried ove
 
 | # | Phase | What it adds | Acceptance |
 |---|---|---|---|
-| **P11** | **Failure analyzer UI** | Failed-scenario list, error + stack trace + screenshot, Groq explanation (skill built in P4) | Analyzing a real failure returns a useful root cause in seconds |
 | **P12** | **Auto-heal** | Locator picker, single-capture re-inspect session, `LocatorJsonPatcher` rewrites one JSON entry | Break a locator → heal it → `git diff` shows zero `.cs` changes → test passes |
 
-P11 is more contained than it looks: skill 7 (`FailureAnalysisSkill`) has been built and tested
-since P4 — the phase is UI wiring onto an existing, working pipeline, plus screenshot linking now
-that `ScenarioResult.ScreenshotPath` is actually populated end-to-end (P10). P12 (auto-heal) is the
-one phase left that still needs new capture machinery: a single-element re-inspect session, reusing
-most of P7's `InspectorSession` plumbing rather than building a second capture path from scratch.
+P12 (auto-heal) is the last phase on the original roadmap, and the one that still needs new capture
+machinery: a single-element re-inspect session, reusing most of P7's `InspectorSession` plumbing
+rather than building a second capture path from scratch.
 
 ### Effort, ETA, and model estimates
 
@@ -250,7 +258,10 @@ copying P5's sandbox-compile machinery (wording can't fail to "compile", so ther
 repair), and P8 reused P7's plumbing wholesale rather than inventing new state management. P9 and
 P10 also both landed in a single session on Sonnet 5, at reduced scope (P9 shipped the wiring plus
 one of three new skills; P10 kept scenario-level screenshots instead of adding `[AfterStep]`) — see
-their rows above for exactly what was cut and why. ETA below restarts from "now".
+their rows above for exactly what was cut and why. P11 landed in under an hour on Haiku 4.5,
+confirming the effort table's own call that it was "mostly UI wiring onto an existing skill" — the
+only real work was the frontend page plus the wrap-overflow bug it surfaced. ETA below restarts
+from "now".
 
 Assumptions: "Effort" is focused build time (implementation + your review/testing), not wall-clock.
 "ETA" is cumulative calendar time from now assuming a **part-time pace of ~2 sessions/week at 3–4
@@ -261,10 +272,9 @@ phase.
 
 | # | Phase | Effort (hrs) | ETA (cumulative) | Tokens/session | Model |
 |---|---|---|---|---|---|
-| **P11** | Failure analyzer UI | 4–6 | Week 1 | ~100K | Sonnet 5 (Haiku 4.5 viable — mostly UI wiring onto an existing skill) |
-| **P12** | Auto-heal | 6–8 | Week 2 | ~150K | Sonnet 5 |
-| **Deferred from P9/P10** | Skills 3 & 5 (assertion inference, Outline expansion + `TestFlow` schema work), `[AfterStep]` screenshots, inline screenshot serving on the Report page | 10–14 | Week 4 | ~200–250K | Sonnet 5 |
-| | **Total remaining** | **~20–28 hrs** | **~4 weeks** | | |
+| **P12** | Auto-heal | 6–8 | Week 1 | ~150K | Sonnet 5 |
+| **Deferred from P9/P10** | Skills 3 & 5 (assertion inference, Outline expansion + `TestFlow` schema work), `[AfterStep]` screenshots, inline screenshot serving on the Report page | 10–14 | Week 3 | ~200–250K | Sonnet 5 |
+| | **Total remaining** | **~16–22 hrs** | **~3 weeks** | | |
 
 Two things worth knowing about the model column: Sonnet 5 is the default here because it's what
 this whole project has been built with and it's handled everything so far without trouble. The two

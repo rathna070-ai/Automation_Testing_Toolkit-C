@@ -142,7 +142,7 @@ export function ReportPage() {
                     <td style={{ padding: '4px 8px' }}>{s.scenarioName}</td>
                     <td style={{ padding: '4px 8px', color: style.color, fontWeight: 600 }}>{style.label}</td>
                     <td style={{ padding: '4px 8px' }}>{s.duration}</td>
-                    <td style={{ padding: '4px 8px', maxWidth: 420, fontSize: '0.85em' }}>
+                    <td style={{ padding: '4px 8px', maxWidth: 420, fontSize: '0.85em', overflowWrap: 'anywhere' }}>
                       {s.errorMessage ?? '—'}
                     </td>
                     <td style={{ padding: '4px 8px', fontSize: '0.85em' }}>
