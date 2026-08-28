@@ -120,18 +120,26 @@ public class InspectorSessionBrowserTests
             var username = session.Driver.FindElement(By.Id("username"));
             username.SendKeys("wrong");
             session.Driver.FindElement(By.Id("password")).Click(); // blur -> first change event
-            await session.PollAsync(CancellationToken.None);
+            var firstPoll = await session.PollAsync(CancellationToken.None);
+            var originalSequence = firstPoll.Single(e => e.ActionType == ActionType.Type).Sequence;
 
             username.Clear();
             username.SendKeys("tomsmith");
             session.Driver.FindElement(By.Id("password")).Click(); // blur -> second change event
-            // The step count does not change here — the correction collapses into the
-            // existing step — so wait on the value, not on a new step appearing.
-            await PollUntilAsync(session, s =>
-                s.Steps.Any(e => e.ActionType == ActionType.Type && e.InputValue == "tomsmith"));
+
+            // The correction must come back from PollAsync itself, at the SAME Sequence —
+            // that's what InspectorBroadcastService pushes to SignalR. A UI only listening
+            // to the live feed (never re-fetching) has to see the fix, not just eventual
+            // internal consistency; asserting on session.Steps alone wouldn't catch a
+            // regression where the correction updates state but is never broadcast.
+            var correction = await PollUntilReturnsAsync(session,
+                s => s.SingleOrDefault(e => e.ActionType == ActionType.Type && e.InputValue == "tomsmith"));
+
+            Assert.That(correction, Is.Not.Null, "the retype correction was never returned from PollAsync");
+            Assert.That(correction!.Sequence, Is.EqualTo(originalSequence),
+                "a correction must reuse the original step's Sequence so a live listener can upsert it, not append a duplicate");
 
             var typeSteps = session.Steps.Where(s => s.ActionType == ActionType.Type).ToList();
-
             Assert.That(typeSteps, Has.Count.EqualTo(1));
             Assert.That(typeSteps[0].InputValue, Is.EqualTo("tomsmith"));
         }
@@ -219,4 +227,22 @@ public class InspectorSessionBrowserTests
 
     private static Task PollUntilStepsAsync(InspectorSession session, int expectedSteps) =>
         PollUntilAsync(session, s => s.Steps.Count >= expectedSteps);
+
+    // Like PollUntilAsync, but returns whatever a single PollAsync call itself handed back —
+    // the exact list InspectorBroadcastService would push to SignalR — rather than the
+    // session's converged internal state. Needed to prove a value actually got broadcast,
+    // not just that it eventually became true internally.
+    private static async Task<InspectorEvent?> PollUntilReturnsAsync(
+        InspectorSession session, Func<IReadOnlyList<InspectorEvent>, InspectorEvent?> select)
+    {
+        for (var attempt = 0; attempt < 25; attempt++)
+        {
+            var polled = await session.PollAsync(CancellationToken.None);
+            var found = select(polled);
+            if (found is not null)
+                return found;
+            await Task.Delay(200);
+        }
+        return null;
+    }
 }

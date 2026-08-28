@@ -42,5 +42,10 @@ public class Hooks
 
         screenshotDriver.GetScreenshot().SaveAsFile(path);
         scenarioContext["ScreenshotPath"] = path;
+
+        // The .trx file has no field for arbitrary per-test metadata, but VSTest does capture
+        // each test's Console output into Output/StdOut — so that's how TrxParser recovers
+        // this path after the run, without needing its own out-of-band file.
+        Console.WriteLine($"[WTT_SCREENSHOT]{path}");
     }
 }

@@ -1,0 +1,53 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["edgeCases"],
+  "properties": {
+    "edgeCases": {
+      "type": "array",
+      "description": "1 to 3 edge-case variants of the recorded flow. Can be empty if none are useful.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["nameSuffix", "title", "rationale", "overrides"],
+        "properties": {
+          "nameSuffix": {
+            "type": "string",
+            "description": "Short PascalCase-friendly phrase unique to this edge case, e.g. 'InvalidPassword'."
+          },
+          "title": {
+            "type": "string",
+            "description": "Human-readable scenario title, e.g. 'Login fails with an invalid password'."
+          },
+          "rationale": {
+            "type": "string",
+            "description": "One sentence: what this edge case tests and why it matters."
+          },
+          "overrides": {
+            "type": "array",
+            "description": "Only the steps that change from the happy path.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["stepOrder", "newInputValue", "newExpectedText"],
+              "properties": {
+                "stepOrder": {
+                  "type": "integer",
+                  "description": "The Order of the step being overridden, matching the input flow's step list."
+                },
+                "newInputValue": {
+                  "type": ["string", "null"],
+                  "description": "New value for a 'type' step. Null if this override is for an assertion step instead."
+                },
+                "newExpectedText": {
+                  "type": ["string", "null"],
+                  "description": "New expected text for an 'assertText'/'assertVisible' step. Null if this override is for a type step instead."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

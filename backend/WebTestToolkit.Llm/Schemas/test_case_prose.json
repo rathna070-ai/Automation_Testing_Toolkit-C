@@ -1,0 +1,35 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title", "precondition", "steps"],
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "A short manual-tester-facing title for the whole flow, e.g. 'Successful login with valid credentials'."
+    },
+    "precondition": {
+      "type": "string",
+      "description": "One sentence describing the state the tester must be in before starting, e.g. 'User is on the login page and not already signed in.'"
+    },
+    "steps": {
+      "type": "array",
+      "description": "Exactly one entry per input step, in the same order, using the same Number.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["number", "action", "expectedResult"],
+        "properties": {
+          "number": { "type": "integer" },
+          "action": {
+            "type": "string",
+            "description": "One imperative sentence a manual tester follows, e.g. 'Enter a valid username in the Username field.'"
+          },
+          "expectedResult": {
+            "type": "string",
+            "description": "What the tester should observe after this step, e.g. 'The Username field contains the entered value.'"
+          }
+        }
+      }
+    }
+  }
+}

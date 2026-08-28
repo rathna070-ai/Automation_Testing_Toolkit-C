@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using WebTestToolkit.Api.Dtos;
 using WebTestToolkit.Execution.Generation;
+using WebTestToolkit.Llm.Skills;
 
 namespace WebTestToolkit.Api.Controllers;
 
@@ -9,10 +10,12 @@ namespace WebTestToolkit.Api.Controllers;
 public class FlowsController : ControllerBase
 {
     private readonly HybridTestCodeGenerator _generator;
+    private readonly EdgeCaseGenerationSkill _edgeCaseSkill;
 
-    public FlowsController(HybridTestCodeGenerator generator)
+    public FlowsController(HybridTestCodeGenerator generator, EdgeCaseGenerationSkill edgeCaseSkill)
     {
         _generator = generator;
+        _edgeCaseSkill = edgeCaseSkill;
     }
 
     // Same pipeline as generate, including the sandbox compile, but writes nothing —
@@ -37,5 +40,40 @@ public class FlowsController : ControllerBase
         var result = await _generator.GenerateAsync(request.Flow, options, progress: null, ct);
 
         return Ok(GenerateFlowResponse.From(result));
+    }
+
+    // Speculative output, reviewed before it touches anything — same posture as the label
+    // suggestion in Inspect. Each returned option already carries a complete TestFlow
+    // (EdgeCaseFlowBuilder), so "accept" is just POSTing option.flow to preview/generate
+    // like any other flow; nothing here writes or compiles.
+    [HttpPost("edge-cases")]
+    public async Task<ActionResult<EdgeCaseResponse>> EdgeCases([FromBody] EdgeCaseRequest request, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(request.Flow.Name))
+            return BadRequest(new { error = "Flow name is required." });
+
+        if (request.Flow.Steps.Count == 0)
+            return BadRequest(new { error = "Flow has no steps." });
+
+        var input = new EdgeCaseGenerationInput(
+            request.Flow.Name,
+            request.Flow.StartUrl,
+            request.Flow.Steps
+                .OrderBy(s => s.Order)
+                .Select(s => new EdgeCaseStepSummary(
+                    s.Order, s.ActionType.ToString(), s.Label, s.PageName,
+                    !string.IsNullOrEmpty(s.InputValue), !string.IsNullOrEmpty(s.ExpectedText)))
+                .ToList());
+
+        var result = await _edgeCaseSkill.RunAsync(input, ct);
+
+        if (!result.IsSuccess)
+            return Ok(new EdgeCaseResponse(false, [], result.Reason ?? "Edge-case suggestions are unavailable."));
+
+        var options = result.Value!.EdgeCases
+            .Select(s => new EdgeCaseOptionDto(s.NameSuffix, s.Title, s.Rationale, EdgeCaseFlowBuilder.Build(request.Flow, s)))
+            .ToList();
+
+        return Ok(new EdgeCaseResponse(true, options, null));
     }
 }

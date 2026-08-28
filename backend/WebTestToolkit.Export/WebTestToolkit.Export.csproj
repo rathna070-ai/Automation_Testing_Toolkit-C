@@ -2,6 +2,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\WebTestToolkit.Contracts\WebTestToolkit.Contracts.csproj" />
+    <!-- For TestCaseProseSkill (skill 6): deterministic prose is always the guaranteed
+         output, the skill only ever improves on it — mirrors how Execution already
+         references Llm for the same deterministic-first, LLM-enhances pattern (P5). -->
+    <ProjectReference Include="..\WebTestToolkit.Llm\WebTestToolkit.Llm.csproj" />
   </ItemGroup>
 
   <ItemGroup>

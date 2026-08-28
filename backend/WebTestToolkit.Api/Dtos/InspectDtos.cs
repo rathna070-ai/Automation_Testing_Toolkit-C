@@ -29,3 +29,8 @@ public record InspectSessionResponse(
     public static InspectSessionResponse From(InspectorSession session) =>
         new(session.Describe(), session.Steps);
 }
+
+// Never a non-2xx for "no key configured" or "Groq had a bad day" — same convention as
+// AnalyzeFailureResponse. A missing suggestion is an ordinary outcome the caller shows by
+// just leaving the deterministic label in place, not an error to surface.
+public record SuggestLabelResponse(bool Available, string? Label, string? UnavailableReason);

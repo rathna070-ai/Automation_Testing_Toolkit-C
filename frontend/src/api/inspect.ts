@@ -1,4 +1,5 @@
 import * as signalR from '@microsoft/signalr'
+import type { TestFlow } from './client'
 
 // Client contract for the inspector. Commands are REST (they need validation and status
 // codes); captured steps arrive over SignalR, because the backend polls the browser on a
@@ -16,21 +17,26 @@ export interface LocatorCandidate {
   score: number
 }
 
+// Only tagName and candidates are ever actually required (matching CapturedElement.cs: every
+// other field is a nullable reference, and HasLocator/BestLocator are get-only computed
+// properties the backend ignores on deserialize) - the rest is optional so a hand-authored
+// flow (sampleFlow.ts, an edge-case override) doesn't have to fabricate descriptive metadata
+// it has no real value for.
 export interface CapturedElement {
   tagName: string
-  id: string | null
-  name: string | null
-  visibleText: string | null
   candidates: LocatorCandidate[]
-  type: string | null
-  placeholder: string | null
-  ariaLabel: string | null
-  associatedLabelText: string | null
-  cssClasses: string | null
-  outerHtmlSnippet: string | null
-  ancestorContext: string | null
-  hasLocator: boolean
-  bestLocator: LocatorCandidate | null
+  id?: string | null
+  name?: string | null
+  visibleText?: string | null
+  type?: string | null
+  placeholder?: string | null
+  ariaLabel?: string | null
+  associatedLabelText?: string | null
+  cssClasses?: string | null
+  outerHtmlSnippet?: string | null
+  ancestorContext?: string | null
+  hasLocator?: boolean
+  bestLocator?: LocatorCandidate | null
 }
 
 export interface InspectorEvent {
@@ -136,9 +142,21 @@ export function deleteInspectStep(id: string, sequence: number): Promise<Inspect
   return send<InspectSessionResponse>(`/api/inspect/${id}/steps/${sequence}`, 'DELETE')
 }
 
+export interface SuggestLabelResponse {
+  available: boolean
+  label: string | null
+  unavailableReason: string | null
+}
+
+// Read-only — returns a suggestion for the caller to show, never applies it. The deterministic
+// label already sitting in the step stays in place until the user accepts (edits, then saves).
+export function suggestStepLabel(id: string, sequence: number): Promise<SuggestLabelResponse> {
+  return send<SuggestLabelResponse>(`/api/inspect/${id}/steps/${sequence}/suggest-label`, 'POST')
+}
+
 // The handoff: this goes straight to previewFlow/generateFlow in client.ts.
-export function getInspectFlow(id: string): Promise<unknown> {
-  return send<unknown>(`/api/inspect/${id}/flow`, 'GET')
+export function getInspectFlow(id: string): Promise<TestFlow> {
+  return send<TestFlow>(`/api/inspect/${id}/flow`, 'GET')
 }
 
 export interface InspectFeedHandlers {

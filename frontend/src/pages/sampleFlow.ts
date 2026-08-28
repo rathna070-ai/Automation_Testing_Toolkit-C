@@ -1,6 +1,15 @@
-// A hand-authored flow standing in for the Inspector, which lands in P7. It mirrors the
-// Phase 1 sample but uses distinct step wording so its bindings don't collide with
-// SampleLogin's — a collision is exactly what the validator is meant to reject.
+import type { TestFlow } from '../api/client'
+
+// A hand-authored flow standing in for a real Inspect session — used as the Flows/Export
+// pages' fallback when nothing was handed off from Inspect (P9 wires that handoff for real;
+// this is just what's shown before you've captured your own). It mirrors the Phase 1 sample
+// but uses distinct step wording so its bindings don't collide with SampleLogin's — a
+// collision is exactly what the validator is meant to reject.
+//
+// `satisfies TestFlow` (rather than `: TestFlow`) checks the shape while keeping each field's
+// literal type (e.g. actionType stays "navigate", not widened to string) - both matter here:
+// the check is what catches a typo'd actionType at compile time, and the narrowing is what
+// this file was missing before, which is what broke FlowsPage/ExportPage's TestFlow typing.
 export const SAMPLE_FLOW = {
   name: 'DemoLogin',
   startUrl: 'https://the-internet.herokuapp.com/login',
@@ -62,4 +71,4 @@ export const SAMPLE_FLOW = {
       },
     },
   ],
-}
+} satisfies TestFlow

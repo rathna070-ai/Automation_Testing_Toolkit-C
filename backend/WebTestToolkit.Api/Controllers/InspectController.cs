@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using WebTestToolkit.Api.Dtos;
 using WebTestToolkit.Contracts.Models;
 using WebTestToolkit.Inspector;
+using WebTestToolkit.Llm.Skills;
 
 namespace WebTestToolkit.Api.Controllers;
 
@@ -12,10 +13,12 @@ namespace WebTestToolkit.Api.Controllers;
 public class InspectController : ControllerBase
 {
     private readonly InspectorSessionManager _sessions;
+    private readonly StepLabelSuggestionSkill _labelSkill;
 
-    public InspectController(InspectorSessionManager sessions)
+    public InspectController(InspectorSessionManager sessions, StepLabelSuggestionSkill labelSkill)
     {
         _sessions = sessions;
+        _labelSkill = labelSkill;
     }
 
     [HttpGet("sessions")]
@@ -107,6 +110,41 @@ public class InspectController : ControllerBase
             return NotFound(new { error = $"Step {sequence} is not part of session '{id}'." });
 
         return Ok(InspectSessionResponse.From(session));
+    }
+
+    // Read-only: returns a suggestion, never applies it. "Suggestions appear but stay
+    // editable" (P8's own acceptance line) means the user reviews it in the label field and
+    // PATCHes to commit — same review-before-write posture P5's edge-case/outline skills use
+    // for their speculative output, applied here even though a wrong guess is low-stakes.
+    [HttpPost("{id}/steps/{sequence:int}/suggest-label")]
+    public async Task<ActionResult<SuggestLabelResponse>> SuggestLabel(string id, int sequence, CancellationToken ct)
+    {
+        var session = _sessions.Find(id);
+        if (session is null)
+            return SessionNotFound(id);
+
+        var step = session.Steps.FirstOrDefault(s => s.Sequence == sequence);
+        if (step is null)
+            return NotFound(new { error = $"Step {sequence} is not part of session '{id}'." });
+
+        var element = step.Element;
+        var input = new StepLabelSuggestionInput(
+            ActionType: step.ActionType.ToString(),
+            PageName: step.PageName,
+            DeterministicLabel: step.SuggestedLabel,
+            TagName: element?.TagName ?? "",
+            ElementType: element?.Type,
+            VisibleText: element?.VisibleText,
+            Placeholder: element?.Placeholder,
+            AriaLabel: element?.AriaLabel,
+            AssociatedLabelText: element?.AssociatedLabelText,
+            AncestorContext: element?.AncestorContext);
+
+        var result = await _labelSkill.RunAsync(input, ct);
+
+        return Ok(result.IsSuccess
+            ? new SuggestLabelResponse(true, result.Value!.Label, null)
+            : new SuggestLabelResponse(false, null, result.Reason ?? "Suggestion is unavailable."));
     }
 
     [HttpDelete("{id}/steps/{sequence:int}")]

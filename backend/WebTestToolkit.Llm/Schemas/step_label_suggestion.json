@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["label"],
+  "properties": {
+    "label": {
+      "type": "string",
+      "description": "One Gherkin step sentence, starting with 'I', no Given/When/Then keyword and no trailing punctuation, e.g. 'I enter my username'."
+    }
+  }
+}

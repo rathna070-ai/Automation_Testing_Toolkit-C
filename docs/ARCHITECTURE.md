@@ -62,7 +62,8 @@ WebTestToolkit/
 │   ├── WebTestToolkit.Inspector.Tests/     + 4 opt-in tests that drive real Chrome
 │   ├── WebTestToolkit.Execution/           dotnet test runner + .trx parsing + run reports
 │   ├── WebTestToolkit.Execution.Tests/
-│   └── WebTestToolkit.Export/              Test case docs → Excel / XML   [shell only — P6]
+│   ├── WebTestToolkit.Export/               Test case docs → Excel / XML
+│   └── WebTestToolkit.Export.Tests/
 ├── frontend/                               React + Vite + TypeScript
 │   ├── src/pages/                          Inspect · Flows · Run · Report · Failures · Export · Settings
 │   ├── src/api/                            Typed fetch wrappers + SignalR client
@@ -72,10 +73,10 @@ WebTestToolkit/
 └── docs/
 ```
 
-Each backend library depends only on `Contracts`. `Api` references all of them. Nothing references
-`GeneratedTests`. 12 `.csproj` in total (7 libraries + `Api`, 4 with a matching `.Tests` project —
-`Inspector` and `Export` are the odd ones out, for different reasons: `Inspector`'s test project
-exists and is green, `Export` doesn't exist yet because there's nothing to test until P6).
+Every backend library depends on `Contracts`; `Export` also depends on `Llm` (it calls the test-case
+prose skill directly, the same way `Execution` calls the script-generation skill). `Api` references
+all of them. Nothing references `GeneratedTests`. 13 `.csproj` in total (7 libraries + `Api`, all 7 with
+a matching `.Tests` project — the last gap, `Export.Tests`, closed with P6).
 
 ---
 
@@ -97,7 +98,7 @@ exists and is green, `Export` doesn't exist yet because there's nothing to test 
 | **P3 — restructure & scaffold** | Repo moved to `backend/` / `frontend/` / `tests/`; WPF app retired, its `dotnet test` shell-out and solution-root discovery salvaged into `Execution` (`DotnetCli`, `SolutionPaths`, with the blocking-read deadlock risk fixed) | `backend/WebTestToolkit.Execution/` |
 | ↳ API skeleton | `WebTestToolkit.Api` (ASP.NET Core): `/api/health`, CORS opened for the Vite origin, a placeholder `PingHub` proving the SignalR pipeline | `backend/WebTestToolkit.Api/` |
 | ↳ Error handling | `AddProblemDetails()` + `UseExceptionHandler()` (non-Development) / `UseDeveloperExceptionPage()` (Development) — an unhandled exception returns RFC 7807 JSON, never a bare stack trace, regardless of environment | `Api/Program.cs` |
-| ↳ Empty backend projects | `Llm`, `Inspector` (+ Selenium.WebDriver 4.48.0), `Execution`, `Export` (+ ClosedXML 0.105.1) — scaffolded and wired to `Contracts`/`Api`. All but `Export` have since been filled in (P4/P5/P7); `Export` is still a shell awaiting P6 | `backend/WebTestToolkit.{Llm,Inspector,Execution,Export}/` |
+| ↳ Empty backend projects (P3) | `Llm`, `Inspector` (+ Selenium.WebDriver 4.48.0), `Execution`, `Export` (+ ClosedXML 0.105.1) — scaffolded and wired to `Contracts`/`Api`. All four have since been filled in (P4/P5/P6/P7) | `backend/WebTestToolkit.{Llm,Inspector,Execution,Export}/` |
 | ↳ Frontend shell | React + Vite + TS, react-router, a stub page per planned feature area, typed API client, SignalR wrapper, dev-server proxy to the API | `frontend/` |
 | ↳ Repo hygiene | CI (`dotnet build`+`test` on Windows, `npm run lint`+`build` on Ubuntu, every push/PR to `main`), root `.editorconfig` (CRLF for `.cs` matching what's already committed, LF for the frontend), TypeScript `strict: true` (already clean — no code changes needed to turn it on) | `.github/workflows/ci.yml`, `.editorconfig`, `frontend/tsconfig.app.json` |
 | ↳ `CapturedElement.BestLocator` bug fix | Was throwing on an element with zero locator candidates; now nullable, and `LocatorJsonGenerator` skips such elements instead of crashing | `Contracts` / `CodeGenerator` |
@@ -114,20 +115,39 @@ exists and is green, `Export` doesn't exist yet because there's nothing to test 
 | ↳ Build sandbox | `BuildSandbox` — a persistent mirror under `%LOCALAPPDATA%`, outside the repo, so a bad candidate can never break the user's real suite. Incremental, restore cached, Windows file-locking handled | `Execution/Generation/BuildSandbox.cs` |
 | ↳ Compiler feedback | `MsBuildErrorParser` — relative paths, dedupe, cap at 25, plus ±2 lines of source context around each error to make repairs land | `Execution/Generation/MsBuildErrorParser.cs` |
 | ↳ Locator files | `LocatorFileBuilder` — the toolkit serializes `.locators.json`, never the model, so the shape stays byte-identical to what `LocatorRepository` and future auto-heal expect | `Execution/Generation/LocatorFileBuilder.cs` |
-| ↳ Endpoints + UI | `POST /api/flows/preview` (full pipeline, writes nothing) and `/generate`; Flows page with provenance badge, attempts drawer, and a deterministic-vs-AI compare view. Still runs against a hard-coded sample flow — wiring it to a real Inspect session is P8/P9, not a Flows-page gap | `Api/Controllers/FlowsController.cs`, `frontend/src/pages/FlowsPage.tsx` |
+| ↳ Endpoints + UI | `POST /api/flows/preview` (full pipeline, writes nothing) and `/generate`; Flows page with provenance badge, attempts drawer, and a deterministic-vs-AI compare view. Ran against a hard-coded sample flow until P9 wired a real Inspect session through — see that row below | `Api/Controllers/FlowsController.cs`, `frontend/src/pages/FlowsPage.tsx` |
 | **P7 — Inspector backend** | `InspectorSession` — one hand-driven Chrome window per session. Every WebDriver touch is serialized behind a semaphore (the session is reached from both HTTP requests and the polling service); a closed browser window is treated as a normal end, not a crash | `backend/WebTestToolkit.Inspector/InspectorSession.cs` |
 | ↳ Injected overlay | `Overlay/inspector-overlay.js` (embedded resource) — hover highlight, capture-phase click/change listeners, idempotent re-injection after full page loads, and **a sessionStorage-backed queue so a click that navigates away is not lost**. It never calls `preventDefault`/`stopPropagation`: the user has to be able to walk the real flow while we watch | `Inspector/Overlay/` |
 | ↳ Candidate proposal vs. ranking | The overlay *proposes* locators (only it can check uniqueness against the live DOM); `LocatorRanker` *scores* them (`id` 100 > `data-testid` 95 > `name` 85 > `aria-label` 78 > `placeholder` 72 > text-xpath 60 > **generated id 45** > css path 35 > absolute xpath 10). Framework-generated ids (`:r3:`, `ember512`, GUIDs) are detected and scored below real attributes. Strategies outside `id/css/xpath/name` are dropped, so `LocatorRepository.ToBy` can never throw | `Inspector/Capture/LocatorRanker.cs` |
-| ↳ Deterministic naming | `StepLabeler` — page name from URL (skipping record ids: `/orders/48213/edit` → `OrdersEditPage`), locator keys unique per page (`RemoveButton`, `RemoveButton2`), and Gherkin-voice labels. Never echoes a password into step text. This is the no-API-key path; LLM skill 2 (P8) improves on it | `Inspector/Capture/StepLabeler.cs` |
+| ↳ Deterministic naming | `StepLabeler` — page name from URL (skipping record ids: `/orders/48213/edit` → `OrdersEditPage`), locator keys unique per page (`RemoveButton`, `RemoveButton2`), and Gherkin-voice labels. Never echoes a password into step text. This is the no-API-key path; `StepLabelSuggestionSkill` (skill 2, P8) improves on it on request | `Inspector/Capture/StepLabeler.cs` |
 | ↳ Session manager | `InspectorSessionManager` (singleton) — concurrency cap, idle timeout closing forgotten browsers, retention of stopped sessions so their steps stay readable, and disposal on host shutdown so Ctrl+C leaves no orphaned Chrome | `Inspector/InspectorSessionManager.cs` |
 | ↳ Live feed | `InspectorBroadcastService` (`BackgroundService`) polls each session and pushes to `InspectHub` groups; SignalR's JSON protocol configured with the same camelCase enum converter as MVC, so the hub and REST no longer disagree on the wire shape | `Api/Services/InspectorBroadcastService.cs`, `Api/Hubs/InspectHub.cs` |
-| ↳ Endpoints | `GET /api/inspect/sessions`, `POST /start`, `GET /{id}`, `POST /{id}/capture` (pause/resume), `POST /{id}/stop`, `PATCH`/`DELETE /{id}/steps/{n}`, `GET /{id}/flow`. Chrome failing to launch returns a 502 that says so, not an opaque 500 | `Api/Controllers/InspectController.cs` |
+| ↳ Endpoints | `GET /api/inspect/sessions`, `POST /start`, `GET /{id}`, `POST /{id}/capture` (pause/resume), `POST /{id}/stop`, `PATCH`/`DELETE /{id}/steps/{n}`, `GET /{id}/flow`, `POST /{id}/steps/{n}/suggest-label`. Chrome failing to launch returns a 502 that says so, not an opaque 500 | `Api/Controllers/InspectController.cs` |
 | ↳ Typed client | `frontend/src/api/inspect.ts` — REST wrappers plus `connectInspectFeed`, which re-sends `Subscribe` on reconnect (SignalR restores the connection but *not* group membership) | `frontend/src/api/inspect.ts` |
+| ↳ Retype-broadcast bug fix (found building P8) | A retyped field's correction updated `InspectorSession`'s internal state but `Convert` returned `null` for it, so `PollCore` never included it in the batch `InspectorBroadcastService` pushes — a UI only listening live would show the typo forever. `Convert` now returns `(event, isUpdate)`; a correction reuses its original `Sequence` so a listener can upsert it. Proven with a browser test that asserts on `PollAsync`'s own return value, not just eventual internal state | `Inspector/InspectorSession.cs` |
+| **P6 — Test case export** | `TestCaseSuiteBuilder` — deterministic prose always built first (the guaranteed no-API-key output), optionally enhanced by skill 6. No sandbox-compile machinery like P5's: wording can't fail to "compile", so a skill failure is a plain fall-back, not a repair loop | `backend/WebTestToolkit.Export/TestCaseSuiteBuilder.cs` |
+| ↳ Prose skill | `TestCaseProseSkill` (skill 6, low effort) — given step action types, labels, and (for assertions) expected text, writes a title/precondition/per-step action+expected-result. **Never shown a real typed value** — `TestData` is filled in afterwards, mechanically, from `TestStep.InputValue`, so the model could not invent it even if it tried; a test asserts the prompt never contains it | `Llm/Skills/TestCaseProseSkill.cs`, `Llm/Prompts/test-case-prose.md` |
+| ↳ Writers | `ExcelTestCaseWriter` (ClosedXML) — one row per step with case-level fields repeated, plus a Summary sheet; `XmlTestCaseWriter` (`System.Xml.Linq`) — the documented `<TestSuite><TestCase><Steps><Step>` schema. Both round-tripped in tests: the xlsx re-opens in ClosedXML's own reader, the xml re-parses with `XDocument.Load` and its declared encoding matches its actual bytes | `Export/ExcelTestCaseWriter.cs`, `Export/XmlTestCaseWriter.cs` |
+| ↳ Endpoints | `POST /api/export/testcases/preview` (JSON, for a UI table), `/testcases/xlsx`, `/testcases/xml` (file downloads) — flow travels in the body, same convention as `/api/flows/preview`, since nothing persists flows by name yet | `Api/Controllers/ExportController.cs` |
+| ↳ **Scope actually delivered vs. originally planned** | Ships **1 of the 4** originally-listed scope items: the recorded happy path, rendered as one `TestCaseDocument`. Skill 4 (edge cases) and `RunSummary` (last-run status) now both exist (P9/P10) but neither is wired into *this exporter* yet — that's a small remaining task, not a blocked one; Scenario Outline rows still wait on real Outline support in `TestFlow` itself. See §4 for the up-to-date per-item breakdown | `Contracts/Models/TestCaseModels.cs` |
+| **P8 — Inspect UI** | `InspectPage.tsx` — start form (name/URL/headless) → live step table over the P7 SignalR feed, action-type/label/locator-key editing with dirty-tracking, per-step delete, pause/resume, stop. Verified in a real browser (Selenium driving the page itself, headless), not just `tsc`/lint | `frontend/src/pages/InspectPage.tsx` |
+| ↳ Label suggestion | `StepLabelSuggestionSkill` (skill 2, low effort) — given only DOM context (tag, visible text, aria-label, associated `<label>`, ancestor context) and the deterministic label, proposes a nicer one. Read-only: the endpoint never writes the step, the suggestion lands in the (still-editable) label field for the user to accept or ignore, same review-before-write posture as P5's speculative skills. Never shown `InputValue` — same discipline as skill 6 | `Llm/Skills/StepLabelSuggestionSkill.cs`, `Api/Controllers/InspectController.cs` |
+| ↳ No-API-key path | The Suggest button checks `GET /api/llm/status` once on load and disables itself with an explanation rather than round-tripping to a 200 that always says unavailable — deterministic labels are what the flow uses either way | `frontend/src/pages/InspectPage.tsx` |
+| **P9 — Generate end-to-end (reduced scope, see below)** | **Inspect → Generate handoff, fully wired.** `InspectPage`'s "Send to Generate" (shown once a session is stopped) fetches the session's real `TestFlow` via `GET /{id}/flow` — not a client-side reconstruction — and hands it to `/flows` via router state; `FlowsPage` reads it if present, falling back to the built-in sample flow only when nothing was handed off. The same flow object also carries through to `/export` via a new link, so a captured session can go straight to code, edge cases, *or* documentation | `frontend/src/pages/{InspectPage,FlowsPage,ExportPage}.tsx` |
+| ↳ Skill 4 — edge-case generation | `EdgeCaseGenerationSkill` (medium effort) — given only step structure (action type, label, page, and *whether* a step carries a value/expected-text — never the value itself, same discipline as skills 2/6), proposes 1–3 edge-case variants as **overrides on the existing steps**, never new ones: a new input value for a `type` step, a new expected outcome for an `assert*` step. `EdgeCaseFlowBuilder` (deterministic, no model call) turns one suggestion into a real, independently-generatable `TestFlow` — same locators and elements as the original, copied verbatim, so an edge case can never invent an element the way free-form generation could | `Llm/Skills/EdgeCaseGeneration{Skill,Models}.cs`, `Execution/Generation/EdgeCaseFlowBuilder.cs` |
+| ↳ Edge-case review UI | `POST /api/flows/edge-cases` returns suggestions with each option's `TestFlow` already built; the Flows page lists them for review with **Preview / Accept & generate / Reject** per option — accepting just calls the existing `preview`/`generate` endpoints with that flow, so no new write/compile path was needed. Same review-before-write posture as every other speculative skill in this codebase | `Api/Controllers/FlowsController.cs` (`EdgeCases` action), `frontend/src/pages/FlowsPage.tsx` |
+| ↳ **Not built — skills 3 and 5, deliberately deferred** | Assertion inference (skill 3) and Scenario Outline / `Examples` expansion (skill 5) are not built. Skill 3 has zero fallback risk today (assertions are already fully capturable by hand) and was the lowest-value of the three. Skill 5 needs a real `Examples`-table representation added to `TestFlow`/`CodeGenerator`/`StaticValidator`'s Gherkin handling first — a schema change, not just a new skill — and doing that properly is a bigger, separable unit of work than fit alongside the other P9 items this session. See the scope table below | — |
+| **P10 — Execution + Report** | `TestRunner.RunAsync` shells `dotnet test <GeneratedTests project> --logger "trx;LogFileName=..."` via the existing `DotnetCli` (salvaged from the WPF app in P3), then hands the `.trx` to `TrxParser`. Success is judged by "did a `.trx` come back", never the process exit code — `dotnet test` exits non-zero on any failing scenario, which is a normal, useful result, not an operation failure | `backend/WebTestToolkit.Execution/{TestRunner,TrxParser}.cs` |
+| ↳ `.trx` schema, verified against real output | The exact schema (`http://microsoft.com/schemas/VisualStudio/TeamTest/2010`, `Results/UnitTestResult` + `TestDefinitions/UnitTest/TestMethod/@className` for the feature name, `Output/ErrorInfo` for failures) was captured from two real `dotnet test` runs against `tests/WebTestToolkit.GeneratedTests` on this exact Reqnroll 3.3.4 / NUnit 3.14.0 / NUnit3TestAdapter 4.5.0 / .NET 8 stack — one passing, one with a deliberately forced failure (reverted afterward, `git diff` clean) — not guessed from documentation. This closes out the risk flagged in §7 | `Execution.Tests/TrxParserTests.cs` |
+| ↳ Screenshot path, surfaced without a new artifact channel | `.trx` has no field for arbitrary per-test metadata, so `Support/Hooks.cs`'s existing `[AfterScenario]` failure screenshot (unchanged otherwise) now also does `Console.WriteLine($"[WTT_SCREENSHOT]{path}")` — VSTest already captures each test's console output into `Output/StdOut`, which is the only place left to smuggle it through. `TrxParser` regexes it back out | `tests/WebTestToolkit.GeneratedTests/Support/Hooks.cs` |
+| ↳ Live console + tracking | `ExecutionController` (`POST /api/execution/run` → 202 + run id; `GET /runs/{id}`, `GET /runs/latest`) runs the test process as a background task and pushes each console line to `RunHub`'s `run:{id}` SignalR group as `DotnetCli`'s `IProgress<string>` callback fires — there's nothing to poll, unlike Inspector's browser-state case, since the output is already arriving synchronously. `TestRunSession` buffers every line so a client that subscribes a moment late, or reconnects, or just refreshes, still sees the full transcript and the final `RunSummary` via `GET`, not only the live push | `Api/{Controllers/ExecutionController,Hubs/RunHub,Services/TestRunSessionManager}.cs` |
+| ↳ Run + Report pages | `RunPage.tsx` — trigger a run, watch console stream live (auto-scrolling), resumes watching an in-progress run on remount; `ReportPage.tsx` — pass/fail counts, per-scenario table (outcome, duration, error, screenshot filename), and CSV/HTML export generated **client-side** from the already-fetched `RunSummary` (no server round-trip needed — the data is already there) | `frontend/src/pages/{RunPage,ReportPage}.tsx`, `frontend/src/api/execution.ts` |
+| ↳ **Scoped down from the original description** | Kept scenario-level failure screenshots (already correct, already working) rather than adding true `[AfterStep]` capture — a screenshot after *every* step of *every* scenario is a real perf/storage cost for a benefit `[AfterScenario]` mostly already covers (you see the page at the moment it broke). Screenshot *paths* are shown in the Report table; there's no inline preview yet, because serving them would mean guessing the generated-tests project's build-configuration-specific output directory from the API process — deferred rather than hardcoded and fragile. See §6 | — |
 
-**Verified working:** `dotnet build WebTestToolkit.sln` clean across all 12 projects (0 warnings, 0
-errors). Tests: `CodeGenerator.Tests` 5/5, `Llm.Tests` 13/13, `Execution.Tests` 43/43,
-`Inspector.Tests` 35/35, and the original Selenium suite 2/2 — **98 in total**, plus 4 opt-in
-browser tests (`--filter "Category=Browser"`) that drive real Chrome.
+**Verified working:** `dotnet build WebTestToolkit.sln` clean across all 15 projects (0 warnings, 0
+errors). Tests: `CodeGenerator.Tests` 5/5, `Llm.Tests` 26/26, `Execution.Tests` 54/54,
+`Inspector.Tests` 35/35, `Export.Tests` 15/15, and the original Selenium suite 2/2 — **137 in
+total**, plus 4 opt-in browser tests (`--filter "Category=Browser"`) that drive real Chrome.
 
 The P5 orchestrator tests are the load-bearing ones: they fake only the model and drive the **real
 compiler**, proving the first attempt failing to compile → compiler errors fed back → second attempt
@@ -154,8 +174,41 @@ one step rather than generating a typo-then-correction; pause suppressing captur
 the browser; and a user-initiated navigation being recorded while a click-caused one is *not*
 (recording it would make the generated test navigate directly and skip the login itself).
 
-Not yet exercised live: a *successful* Groq call (generation or analysis) with a valid API key —
-that path is covered only by tests using stubbed responses in Groq's documented shape.
+**P6 end-to-end, against the running API:** `POST /api/export/testcases/preview` on a 5-step
+login flow, with `useLlm:true` and no key configured, returned a full `TestCaseSuite` — confirming
+the fallback engages silently and correctly rather than erroring. `POST .../testcases/xlsx` returned
+`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` bytes that `file` identifies as
+a genuine "Microsoft Excel 2007+" document; `POST .../testcases/xml` returned the documented schema
+exactly, `TestData` present only on the two steps that actually had it.
+
+**P8 end-to-end, in a real browser:** a headless Selenium session drove the actual React page at
+`/inspect` (not the API directly) — filled the start form, clicked Start Inspect, and watched the
+live step table fill in from the same self-driving target page P7's check used. Edited a step's
+label, clicked Save, and confirmed the Save button went back to disabled once the draft matched
+what the server persisted. Clicked Stop Inspect and confirmed the "N step(s) captured" summary.
+Screenshots taken at each stage confirm the page actually renders correctly, not just that the
+assertions passed.
+
+**P9 end-to-end, in a real browser, against the real practice login site:** started a real Inspect
+session (headless), which auto-captured the initial `navigate` step with no clicks needed; stopped
+it and clicked "Send to Generate"; landed on `/flows` showing the *handed-off* flow ("SmokeTestLogin
+(1 step(s)), captured via Inspect") rather than the sample — confirming the full round trip through
+`GET /{id}/flow` → router state → `FlowsPage` actually works, not just that each half type-checks.
+Separately, clicked "Suggest edge cases" against the sample flow with no API key configured and
+confirmed the exact graceful-unavailable message ("No Groq API key is configured...") renders in
+place, rather than an error or a stuck spinner.
+
+**P10 end-to-end, in a real browser:** clicked "Run tests" on `/run` and watched real `dotnet test`
+console output stream in live (Reqnroll's own step-by-step narration, arriving over `/hubs/run` as
+the process wrote each line) through to completion — "2/2 passed" — against the actual practice
+login site (~44s total, two real Chrome sessions). `/report` then showed both scenarios with correct
+feature name (`Login`, recovered from the `.trx`'s `LoginFeature` class name), scenario names,
+outcomes, and durations, plus working `Export .csv`/`Export .html` buttons.
+
+Not yet exercised live: a *successful* Groq call (generation, edge-case suggestion, or analysis)
+with a valid API key, and a Report row for a *failed* scenario (the practice site's demo credentials
+happened to succeed both times) — both paths are covered only by tests using stubbed/fixture
+responses in the provider's or NUnit's real documented shape.
 
 > **The deterministic generator is not superseded by the LLM work — it is what makes the LLM work
 > safe.** It now serves two further roles: the guaranteed-correct few-shot example inside the codegen
@@ -177,25 +230,27 @@ Nothing already built was wasted — `Contracts` and `CodeGenerator` carried ove
 
 | # | Phase | What it adds | Acceptance |
 |---|---|---|---|
-| **P6** | **Test case export** | `WebTestToolkit.Export`, Excel + XML writers, prose skill, export endpoint + UI | A hand-authored flow exports to a valid `.xlsx` that opens in Excel and an `.xml` that parses |
-| **P8** | **Inspect UI + label suggestions** | React inspect page, live step list over SignalR, label dialog pre-filled by LLM skill 2 | A capture session produces a labeled `TestFlow` in the browser; suggestions appear but stay editable, and absent-LLM still works |
-| **P9** | **Generate end-to-end** | Wire Inspect → Generate, plus assertion inference, edge cases, and Scenario Outlines with their accept/reject review UI | Inspect the demo login page → Generate → files written → `dotnet build` green → test runs |
-| **P10** | **Execution + Report** | `dotnet test --logger trx`, `TrxParser` → `RunSummary`, `[AfterStep]` screenshots, live console over SignalR, report page + CSV/HTML export | Run & Report shows correct pass/fail counts and exports openable files |
 | **P11** | **Failure analyzer UI** | Failed-scenario list, error + stack trace + screenshot, Groq explanation (skill built in P4) | Analyzing a real failure returns a useful root cause in seconds |
 | **P12** | **Auto-heal** | Locator picker, single-capture re-inspect session, `LocatorJsonPatcher` rewrites one JSON entry | Break a locator → heal it → `git diff` shows zero `.cs` changes → test passes |
 
-P6 still works off hand-authored `TestFlow` fixtures — the same trick that made the deterministic
-generator testable, and the reason the LLM and export work could land before any browser automation
-existed. With P7 built, the Inspector now produces those flows for real, so P6 can be validated
-against a genuinely captured flow rather than a fixture.
+P11 is more contained than it looks: skill 7 (`FailureAnalysisSkill`) has been built and tested
+since P4 — the phase is UI wiring onto an existing, working pipeline, plus screenshot linking now
+that `ScenarioResult.ScreenshotPath` is actually populated end-to-end (P10). P12 (auto-heal) is the
+one phase left that still needs new capture machinery: a single-element re-inspect session, reusing
+most of P7's `InspectorSession` plumbing rather than building a second capture path from scratch.
 
 ### Effort, ETA, and model estimates
 
-**These are estimates, not measured data.** P1–P5 are the real data points so far — roughly 6 hours
-for P1–P3, P4 comfortably inside its 6–8 hr estimate, and P5 (the phase flagged as riskiest) also
-landing inside its 12–16 hr estimate on Opus 5. The sandbox/file-locking work that was expected to
-be the time sink went in cleanly, largely because `DotnetCli` already set
-`MSBUILDDISABLENODEREUSE=1` from P3. ETA below restarts from "now".
+**These are estimates, not measured data.** P1–P8 are the real data points so far — roughly 6 hours
+for P1–P3, P4 comfortably inside its 6–8 hr estimate, P5 (the phase flagged as riskiest) also landing
+inside its 12–16 hr estimate on Opus 5, and P7 similarly inside range on Opus 5 despite being the
+other "outside your control" phase (a live browser's JS engine, not a compiler). P6 and P8 both ran
+under a single session each, in line with their estimates — P6 stayed simple by deliberately *not*
+copying P5's sandbox-compile machinery (wording can't fail to "compile", so there's nothing to
+repair), and P8 reused P7's plumbing wholesale rather than inventing new state management. P9 and
+P10 also both landed in a single session on Sonnet 5, at reduced scope (P9 shipped the wiring plus
+one of three new skills; P10 kept scenario-level screenshots instead of adding `[AfterStep]`) — see
+their rows above for exactly what was cut and why. ETA below restarts from "now".
 
 Assumptions: "Effort" is focused build time (implementation + your review/testing), not wall-clock.
 "ETA" is cumulative calendar time from now assuming a **part-time pace of ~2 sessions/week at 3–4
@@ -206,13 +261,10 @@ phase.
 
 | # | Phase | Effort (hrs) | ETA (cumulative) | Tokens/session | Model |
 |---|---|---|---|---|---|
-| **P6** | Test case export | 4–6 | Week 1 | ~100K | Sonnet 5 |
-| **P8** | Inspect UI + label suggestions | 8–10 | Week 4 | ~150K | Sonnet 5 |
-| **P9** | Generate end-to-end (+ assertions/edge cases/outlines) | 14–18 | Week 6 | ~300–400K | Sonnet 5 |
-| **P10** | Execution + Report | 10–12 | Week 8 | ~200K | Sonnet 5 |
-| **P11** | Failure analyzer UI | 4–6 | Week 9 | ~100K | Sonnet 5 (Haiku 4.5 viable — mostly UI wiring onto an existing skill) |
-| **P12** | Auto-heal | 6–8 | Week 10 | ~150K | Sonnet 5 |
-| | **Total remaining** | **~46–60 hrs** | **~8 weeks** | | |
+| **P11** | Failure analyzer UI | 4–6 | Week 1 | ~100K | Sonnet 5 (Haiku 4.5 viable — mostly UI wiring onto an existing skill) |
+| **P12** | Auto-heal | 6–8 | Week 2 | ~150K | Sonnet 5 |
+| **Deferred from P9/P10** | Skills 3 & 5 (assertion inference, Outline expansion + `TestFlow` schema work), `[AfterStep]` screenshots, inline screenshot serving on the Report page | 10–14 | Week 4 | ~200–250K | Sonnet 5 |
+| | **Total remaining** | **~20–28 hrs** | **~4 weeks** | | |
 
 Two things worth knowing about the model column: Sonnet 5 is the default here because it's what
 this whole project has been built with and it's handled everything so far without trouble. The two
@@ -220,8 +272,11 @@ Opus 5 call-outs (P5, P7) aren't about raw capability — they're the two phases
 "integration with something outside your control" (a compiler, a live browser's JS engine) rather
 than "write code against a known API," which is where the extra reasoning tends to pay off in fewer
 debugging round-trips (P4 bore this out — a known-shape HTTP API, and Sonnet 5 built it inside
-estimate with no stalls). If P6 stalls unexpectedly, escalating to Opus 5 for that session is a
-reasonable move — none of this is a hard rule.
+estimate with no stalls). P6 and P8 reinforce the same pattern from the other side — both were
+"write code against a known API" work (ClosedXML/System.Xml.Linq; React state management over an
+already-proven backend) and both finished on Sonnet 5 without incident. If P9 or P10 stall
+unexpectedly, escalating to Opus 5 for that session is a reasonable move — none of this is a hard
+rule.
 
 ---
 
@@ -246,15 +301,21 @@ Verified against Groq's live docs on 2026-08-28. Facts that shape the design:
 Each is a typed "skill" over one shared `GroqClient` transport — one HTTP client, with per-job
 prompt, JSON schema, and `reasoning_effort`. Not seven copy-pasted clients.
 
-| # | Skill | Effort | Fallback when the LLM is unavailable |
-|---|---|---|---|
-| 1 | **Script generation** | high | Deterministic generator output |
-| 2 | Step-label suggestion (live, during inspect) | low | User types the label manually |
-| 3 | Assertion inference | medium | User captures assertion steps explicitly |
-| 4 | Edge-case scenario generation | medium | Happy path only |
-| 5 | Scenario Outline / `Examples` expansion | medium | Single non-parameterized scenario |
-| 6 | Test-case prose (for the export) | low | Template text derived from labels |
-| 7 | Failure analysis | medium | Raw error + stack trace shown as-is |
+| # | Skill | Effort | Fallback when the LLM is unavailable | Status |
+|---|---|---|---|---|
+| 1 | **Script generation** | high | Deterministic generator output | ✅ P5 |
+| 2 | Step-label suggestion (live, during inspect) | low | Deterministic `StepLabeler` output | ✅ P8 |
+| 3 | Assertion inference | medium | User captures assertion steps explicitly | ⬜ deferred (see P9 scope note) |
+| 4 | Edge-case scenario generation | medium | Happy path only | ✅ P9 |
+| 5 | Scenario Outline / `Examples` expansion | medium | Single non-parameterized scenario | ⬜ deferred (needs a `TestFlow` schema change first) |
+| 6 | Test-case prose (for the export) | low | Template text derived from labels | ✅ P6 |
+| 7 | Failure analysis | medium | Raw error + stack trace shown as-is | ✅ P4 |
+
+Five of seven built. Skill 4 follows the same never-show-a-real-value discipline the others already
+established (see §2's P9 row) — it only ever sees step *structure*, and its edge-case values are its
+own invention, never a captured one. Skill 3 was deprioritized deliberately: unlike 4 and 5 it has no
+gap to fill (an assertion step is already fully capturable by hand today), so it was the easiest of
+the three to defer without losing real capability.
 
 **Every skill degrades gracefully. The tool must remain fully usable with no API key configured** —
 that path gets explicitly verified at every phase that touches Groq.
@@ -302,28 +363,31 @@ being written to disk — never written silently.
 
 ---
 
-## 4. Test case export
+## 4. Test case export — built (P6)
 
 Renders the same `TestFlow` to human-readable documentation instead of code — for manual testers,
 test management tools, and compliance records. This is a second *renderer* of the captured flow, not
 a separate capture path.
 
-- **Project:** `backend/WebTestToolkit.Export/` → `Contracts`.
+- **Project:** `backend/WebTestToolkit.Export/` → `Contracts` and `Llm` (for skill 6 — the original
+  plan assumed no dependency beyond `Contracts`; that held until a prose skill needed calling, at
+  which point `Export` took the same dependency `Execution` already takes for the same reason).
   NuGet: **ClosedXML 0.105.1** (MIT, .NET Standard 2.0, actively maintained) for `.xlsx`;
   `System.Xml.Linq` (BCL) for XML.
 - **XML flavor:** a generic, readable custom schema — transformable into any tool's import format
-  later with XSLT or a small script.
+  later with XSLT or a small script. What's actually emitted (real output, not the illustrative
+  example this replaces):
 
   ```xml
-  <TestSuite name="Login">
-    <TestCase id="TC-001" priority="High" source="Recorded">
-      <Title>Successful login with valid credentials</Title>
-      <Precondition>User is on the login page</Precondition>
+  <TestSuite name="Login" startUrl="..." generatedAtUtc="...">
+    <TestCase id="TC-001" priority="medium" source="recorded" lastRunStatus="notRun">
+      <Title>Login flow</Title>
+      <Precondition>User starts at https://the-internet.herokuapp.com/login</Precondition>
       <Steps>
         <Step number="2">
-          <Action>Enter the username</Action>
+          <Action>Enter the username.</Action>
           <TestData>tomsmith</TestData>
-          <ExpectedResult>Username field contains the value</ExpectedResult>
+          <ExpectedResult>The field contains the entered value.</ExpectedResult>
         </Step>
       </Steps>
     </TestCase>
@@ -331,22 +395,35 @@ a separate capture path.
   ```
 
 - **Excel layout:** `Test Case ID | Title | Precondition | Priority | Source | Step # | Action |
-  Test Data | Expected Result | Last Run Status`, plus a summary sheet (flow name, URL, generated-at,
-  counts).
-- **Scope — all four enabled:**
-  1. the recorded happy path;
-  2. LLM-generated edge cases (reuses skill 4);
-  3. Scenario Outline rows expanded to one test case per data row — what a manual tester actually
-     executes, rather than a single parameterized case;
-  4. a last-run status column populated from the most recent `RunSummary`, so the export doubles as
-     an execution record.
-- **Prose:** skill 6 writes proper manual-test-case wording and per-step expected results;
-  deterministic templates derived from `TestStep.Label` + `ActionType` are the fallback.
-- **New Contracts models:** `TestCaseStep` (Number/Action/TestData/ExpectedResult),
+  Test Data | Expected Result | Last Run Status`, one row per step with case-level fields repeated,
+  plus a Summary sheet (flow name, URL, generated-at, counts by source).
+- **Prose:** skill 6 (`TestCaseProseSkill`) writes the title, precondition, and per-step
+  action/expected-result wording; a deterministic template derived from `TestStep.Label` +
+  `ActionType` is the deployed fallback — not a description of one, verified live returning correct
+  output with no API key configured.
+- **Contracts models, built as planned:** `TestCaseStep` (Number/Action/TestData/ExpectedResult),
   `TestCaseDocument` (Id/Title/Precondition/Priority/Source/LastRunStatus/Steps), `TestCaseSuite`.
+  `TestCaseSource` and `LastRunStatus` (reusing `ScenarioOutcome`, nullable) exist as designed.
 
-Depends only on `Contracts` + a `TestFlow`, so it is buildable and testable before the Inspector
-exists.
+### Scope actually delivered: 1 of the originally-planned 4
+
+The plan called for four scope items enabled together. Only the first is real today; the other
+three are schema-ready but populate nothing, because each depends on a phase that doesn't exist yet:
+
+| # | Planned scope item | Status | Blocked on |
+|---|---|---|---|
+| 1 | The recorded happy path | ✅ Built | — |
+| 2 | LLM-generated edge cases in the export | ⬜ Still not built *for export* | Skill 4 itself now exists (P9) and is wired into **Generate** (accept an edge case → get code) — but nothing yet turns an accepted edge case into a `TestCaseDocument` with `Source: EdgeCase` for **this** export path. That's a small, separable wiring task now that the hard part (the skill) is done |
+| 3 | Scenario Outline rows, one per data row | ⬜ Not built | `TestFlow` still has no Outline/`Examples` representation — skill 5 and this both wait on the same schema work |
+| 4 | Last Run Status from the most recent `RunSummary` | ⬜ Not built | `RunSummary` now exists and is fetchable (`GET /api/execution/runs/latest`, P10) but per-run, not persisted per-*flow-name* — export would need to match a suite back to "the run that covered it," which nothing does yet |
+
+This was a deliberate scoping call, not an oversight, and it mostly still stands even with P9/P10
+done: P9 built skill 4 and wired it into *Generate*, not into *this exporter* — connecting the two is
+now a small task (the suggestion DTOs and `EdgeCaseFlowBuilder` are already reusable), just not one
+that happened to get done this round. Item 3 still waits on real Outline/`Examples` support in
+`TestFlow` itself, which nothing currently provides. `TestCaseSource.EdgeCase`/`.Outline` and the
+nullable `LastRunStatus` field remain schema-ready in `Contracts` for when these land — today, every
+suite still holds exactly one `TestCaseDocument`, `Source: Recorded`, `LastRunStatus: null`.
 
 ---
 
@@ -362,26 +439,35 @@ Inspect     GET    /api/inspect/sessions                          → InspectorS
                                                  locatorKey, locatorStrategy, locatorValue }
             DELETE /api/inspect/{id}/steps/{n}
             GET    /api/inspect/{id}/flow                          → TestFlow (feeds /api/flows/*)
+            POST   /api/inspect/{id}/steps/{n}/suggest-label       → suggested label (skill 2), never applied
             HUB    /hubs/inspect               Subscribe(sessionId)
                                                → stepCaptured (InspectorEvent), sessionState
-            GET    /api/inspect/{id}/suggest   { elementRef }      → suggested label (skill 2) [P8]
 
-Flows       GET    /api/flows                                     → saved flows
-            POST   /api/flows/generate         { TestFlow }       → files + provenance (LLM | repaired | fallback)
-            POST   /api/flows/suggest-assertions { TestFlow }     → proposed assertions   (skill 3)
-            POST   /api/flows/suggest-edge-cases { TestFlow }     → proposed scenarios    (skill 4)
-            POST   /api/flows/suggest-outline    { TestFlow }     → outline + examples    (skill 5)
+Flows       POST   /api/flows/preview          { TestFlow, useLlm }  → files + provenance, writes nothing  [built]
+  [built]   POST   /api/flows/generate         { TestFlow, useLlm }  → files + provenance, writes to tests/
+            POST   /api/flows/edge-cases       { TestFlow }          → suggested edge cases (skill 4),
+                                                                        each with its own already-built
+                                                                        TestFlow ready for preview/generate
+            (Still planned: suggest-assertions (skill 3) and suggest-outline (skill 5) — deferred, see
+             §2's P9 row. No GET /api/flows — nothing persists flows by name yet; the flow travels in
+             every request body, same convention Export below reuses.)
 
-Export      GET    /api/flows/{name}/testcases                    → TestCaseSuite (preview)
-            GET    /api/flows/{name}/export?format=xlsx|xml&scope=…  → file download
+Export      POST   /api/export/testcases/preview { TestFlow, useLlm } → TestCaseSuite (JSON)   [built]
+  [built]   POST   /api/export/testcases/xlsx     { TestFlow, useLlm } → .xlsx file download
+            POST   /api/export/testcases/xml      { TestFlow, useLlm } → .xml file download
 
-Run         POST   /api/run                    { flowNames? }     → { runId }
-            GET    /api/run/{id}                                  → RunSummary
-            GET    /api/run/{id}/export?format=csv|html
-            HUB    /hubs/run                   → live console output
+Execution   POST   /api/execution/run                                → 202 + { runId }, runs         [built]
+  [built]          `dotnet test` against tests/WebTestToolkit.GeneratedTests as a background task
+            GET    /api/execution/runs/{id}                         → RunResponse (status, console
+                                                                        lines so far, RunSummary once done)
+            GET    /api/execution/runs/latest                       → same, for the Report page /
+                                                                        a page refresh with no id in hand
+            HUB    /hubs/run                   Subscribe(runId)
+                                               → consoleLine (string), runCompleted (RunResponse)
 
-Failures    POST   /api/failures/analyze       { scenarioResult } → FailureAnalysis (skill 7)
-            GET    /api/screenshots/{file}                        → image
+Failures    POST   /api/failures/analyze       { scenarioResult } → FailureAnalysis (skill 7)   [built]
+            (Screenshot files are on disk with a path in ScenarioResult.ScreenshotPath, but nothing
+             serves them yet — see §6's "Report screenshot preview" quick win.)
 
 Auto-heal   GET    /api/locators                                  → pages + keys
             POST   /api/autoheal/start         { page, key }      → single-capture session
@@ -403,11 +489,18 @@ Beyond the committed roadmap above. Roughly ordered by value-for-effort within e
 
 ### Quick wins
 
-- **Headless toggle + multi-browser.** Half-done: the Inspector already takes a `Headless` flag
-  end-to-end (`InspectorStartRequest` → `ChromeOptions`), just with no UI control yet (P8). What's
-  still missing: the *generated tests'* own driver (`DriverContext`) has no headless option at all,
-  and neither driver-creation site supports anything but Chrome. `DriverContext` already centralizes
-  its own creation, so Firefox/Edge there is small and contained.
+- **Report screenshot preview.** `ScenarioResult.ScreenshotPath` is populated end-to-end (P10) and
+  shown in the Report table, but only as a filename with a tooltip — clicking it doesn't show the
+  image. Serving it needs a static-file mapping from the API to the *generated-tests* project's own
+  `Screenshots/` output folder, which lives under a build-configuration-specific path
+  (`bin/Debug/net8.0/...` in dev) the API process doesn't currently know; deferred rather than
+  hardcoding a path that breaks on a Release build.
+- **Multi-browser for the Inspector; headless + multi-browser for generated-test execution.**
+  Inspector headless is fully done, UI included — P8's start form has a working checkbox
+  (`InspectorStartRequest` → `ChromeOptions`), confirmed live in a real browser walkthrough. Still
+  missing: the *generated tests'* own driver (`DriverContext`) has no headless option at all, and
+  neither driver-creation site supports anything but Chrome. `DriverContext` already centralizes its
+  own creation, so Firefox/Edge there is small and contained.
 - **Flow editor** — reorder, rename, or delete captured steps before generating. Today a misclick
   means re-recording the whole flow.
 - **Richer assertions** — URL, page title, attribute value, element count, CSS property, element
@@ -471,14 +564,16 @@ Beyond the committed roadmap above. Roughly ordered by value-for-effort within e
    into prompts, and a hostile or careless page could contain text that reads as instructions. Treat
    all captured DOM as untrusted data, fence it clearly in prompts, and never let model output decide
    file paths — the API decides where files land, not the model.
-3. **`.trx` schema unverified** for this exact Reqnroll 3.3.4 / NUnit3TestAdapter 4.5.0 / .NET 8
-   combination — inspect a real `results.trx` before writing `TrxParser`.
+3. ~~`.trx` schema unverified~~ **Resolved in P10.** Verified against two real `dotnet test` runs
+   (one passing, one deliberately failed) on this exact Reqnroll 3.3.4 / NUnit3TestAdapter 4.5.0 /
+   .NET 8 combination before `TrxParser` was written — see §2's P10 row.
 4. **Selenium Manager** needs outbound internet on first run and can lag Chrome releases. Two
    independent driver-creation sites double the exposure. `InspectorSession.StartAsync` is wrapped —
    `POST /api/inspect/start` returns a 502 with the underlying message instead of an opaque 500.
    `DriverContext` (the *generated tests'* driver creation, `tests/.../Support/DriverContext.cs`) is
-   not — a Selenium Manager failure there still surfaces as a raw `dotnet test` failure. Worth the
-   same treatment when `Execution`'s run/report path (P10) starts parsing test output for the UI.
+   not — a Selenium Manager failure there still surfaces as a raw `dotnet test` failure, which
+   `TestRunner`/`TrxParser` (P10) will faithfully report as a build/run error with no `.trx` produced,
+   but with no friendlier explanation than the raw console text `RunResponse.Error` carries.
 5. **Orphaned Chrome processes — mitigated (P7).** `InspectorSessionManager` closes a session's
    browser after `IdleTimeout` (default 30 min) and disposes every live session on host shutdown, so
    Ctrl+C on the API doesn't leave Chrome running. Not yet covered: a hard process crash (not a

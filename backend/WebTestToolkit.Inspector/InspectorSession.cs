@@ -169,7 +169,13 @@ public sealed class InspectorSession : IDisposable
         var captures = ParseCaptures(payload);
         var url = _driver.Url;
 
+        // "fresh" is everything PollAsync's caller should see this tick — new steps AND
+        // corrections to steps it already saw (a retype collapse rewrites an existing
+        // event's InputValue in place). "newEvents" is the subset that actually needs
+        // appending to _events; a correction was already applied in place by Convert and
+        // must not be added again, or _events would carry the same step twice.
         var fresh = new List<InspectorEvent>();
+        var newEvents = new List<InspectorEvent>();
 
         // _gate serialises polls against each other, but the UI edits and reads the same
         // list from HTTP threads at the same time — this is the only lock that covers both.
@@ -177,9 +183,13 @@ public sealed class InspectorSession : IDisposable
         {
             foreach (var capture in captures)
             {
-                var converted = Convert(capture);
-                if (converted is not null)
-                    fresh.Add(converted);
+                var (converted, isUpdate) = Convert(capture);
+                if (converted is null)
+                    continue;
+
+                fresh.Add(converted);
+                if (!isUpdate)
+                    newEvents.Add(converted);
             }
 
             if (!string.Equals(url, _lastUrl, StringComparison.Ordinal))
@@ -189,18 +199,26 @@ public sealed class InspectorSession : IDisposable
                 // and skip the very interaction under test. Only record a navigation the
                 // user performed some other way (address bar, back button, a redirect).
                 if (!fresh.Any(e => e.ActionType == ActionType.Click))
-                    fresh.Add(NavigationEvent(url));
+                {
+                    var navigation = NavigationEvent(url);
+                    fresh.Add(navigation);
+                    newEvents.Add(navigation);
+                }
 
                 _lastUrl = url;
             }
 
+            if (newEvents.Count > 0)
+                _events.AddRange(newEvents);
+
             if (fresh.Count > 0)
-            {
-                _events.AddRange(fresh);
                 LastActivityUtc = DateTimeOffset.UtcNow;
-            }
         }
 
+        // Callers (InspectorBroadcastService) push every item here as a stepCaptured event.
+        // A correction reuses its original Sequence, so a listener that upserts-by-sequence
+        // (rather than blindly appending) picks up the fixed value instead of showing the
+        // typo forever.
         return fresh;
     }
 
@@ -235,11 +253,15 @@ public sealed class InspectorSession : IDisposable
         };
     }
 
-    private InspectorEvent? Convert(RawCapture capture)
+    // Returns (event, isUpdate). isUpdate means the returned event replaces an existing
+    // entry at the same Sequence — PollCore must not append it to _events again (Convert
+    // already did, in place), but it still belongs in the broadcast batch so a live listener
+    // learns about the correction instead of showing the typo forever.
+    private (InspectorEvent? Event, bool IsUpdate) Convert(RawCapture capture)
     {
         var element = LocatorRanker.ToCapturedElement(capture);
         if (!element.HasLocator)
-            return null; // Nothing we could ever write into locator JSON.
+            return (null, false); // Nothing we could ever write into locator JSON.
 
         var actionType = capture.Kind switch
         {
@@ -248,7 +270,7 @@ public sealed class InspectorSession : IDisposable
             _ => (ActionType?)null
         };
         if (actionType is null)
-            return null;
+            return (null, false);
 
         var pageName = StepLabeler.PageNameFromUrl(capture.Url);
 
@@ -264,8 +286,9 @@ public sealed class InspectorSession : IDisposable
 
             if (index >= 0)
             {
-                _events[index] = _events[index] with { InputValue = capture.Value };
-                return null;
+                var updated = _events[index] with { InputValue = capture.Value };
+                _events[index] = updated;
+                return (updated, true);
             }
         }
 
@@ -273,7 +296,7 @@ public sealed class InspectorSession : IDisposable
         // otherwise a retyped field would burn "UsernameInput2" for no reason.
         var locatorKey = _labeler.LocatorKeyFor(pageName, element);
 
-        return new InspectorEvent
+        var created = new InspectorEvent
         {
             SessionId = Id,
             Sequence = ++_sequence,
@@ -286,6 +309,7 @@ public sealed class InspectorSession : IDisposable
             Element = element,
             CapturedAtUtc = DateTimeOffset.FromUnixTimeMilliseconds(capture.At)
         };
+        return (created, false);
     }
 
     private static bool SameElement(CapturedElement? a, CapturedElement? b)

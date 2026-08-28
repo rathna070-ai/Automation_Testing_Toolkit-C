@@ -1,11 +1,23 @@
 import { useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import {
   generateFlow,
   previewFlow,
+  suggestEdgeCases,
+  type EdgeCaseOption,
   type GenerateFlowResponse,
   type GenerationSource,
+  type TestFlow,
 } from '../api/client'
 import { SAMPLE_FLOW } from './sampleFlow'
+
+// Per-edge-case generation state, keyed by nameSuffix — independent of the main flow's
+// `result`, since accepting one edge case must not clobber (or be clobbered by) another.
+interface EdgeCaseRunState {
+  status: 'idle' | 'running' | 'done' | 'error'
+  response?: GenerateFlowResponse
+  error?: string
+}
 
 // The provenance badge. Which path produced the code is a real quality signal about the
 // prompt — shipping a fallback silently would hide it.
@@ -17,7 +29,19 @@ const SOURCE_LABELS: Record<GenerationSource, { text: string; tone: string }> = 
   Failed: { text: '✗ Generation failed', tone: '#cf222e' },
 }
 
+// react-router-dom types location.state as `unknown` — narrow it defensively rather than
+// trusting it, since it could be stale (browser back/forward) or absent (direct navigation).
+function flowFromLocationState(state: unknown): TestFlow | null {
+  if (!state || typeof state !== 'object' || !('flow' in state)) return null
+  const flow = (state as { flow: unknown }).flow
+  return flow && typeof flow === 'object' && 'steps' in flow ? (flow as TestFlow) : null
+}
+
 export function FlowsPage() {
+  const location = useLocation()
+  const handedOffFlow = flowFromLocationState(location.state)
+
+  const [flow, setFlow] = useState<TestFlow>(handedOffFlow ?? SAMPLE_FLOW)
   const [useLlm, setUseLlm] = useState(true)
   const [state, setState] = useState<'idle' | 'running' | 'done' | 'error'>('idle')
   const [result, setResult] = useState<GenerateFlowResponse | null>(null)
@@ -26,13 +50,62 @@ export function FlowsPage() {
   const [compareDeterministic, setCompareDeterministic] = useState(false)
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
 
+  const [edgeCaseState, setEdgeCaseState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
+  const [edgeCaseOptions, setEdgeCaseOptions] = useState<EdgeCaseOption[]>([])
+  const [edgeCaseNote, setEdgeCaseNote] = useState('')
+  const [edgeCaseRuns, setEdgeCaseRuns] = useState<Record<string, EdgeCaseRunState>>({})
+
+  const isSample = flow === SAMPLE_FLOW
+
+  async function loadEdgeCases() {
+    setEdgeCaseState('loading')
+    setEdgeCaseNote('')
+    setEdgeCaseOptions([])
+    setEdgeCaseRuns({})
+    try {
+      const response = await suggestEdgeCases(flow)
+      if (response.available) {
+        setEdgeCaseOptions(response.edgeCases)
+        if (response.edgeCases.length === 0) setEdgeCaseNote('No useful edge cases found for this flow.')
+      } else {
+        setEdgeCaseNote(response.unavailableReason ?? 'Edge-case suggestions are unavailable.')
+      }
+      setEdgeCaseState('done')
+    } catch (e) {
+      setEdgeCaseNote(String(e))
+      setEdgeCaseState('error')
+    }
+  }
+
+  // Accept = generate this one edge case exactly like the main flow, just scoped to its own
+  // suffix so its result never overwrites another edge case's or the main flow's.
+  async function runEdgeCase(option: EdgeCaseOption, write: boolean) {
+    setEdgeCaseRuns((prev) => ({ ...prev, [option.nameSuffix]: { status: 'running' } }))
+    try {
+      const call = write ? generateFlow : previewFlow
+      const response = await call({ flow: option.flow, useLlm, maxRepairAttempts: 2 })
+      setEdgeCaseRuns((prev) => ({ ...prev, [option.nameSuffix]: { status: 'done', response } }))
+    } catch (e) {
+      setEdgeCaseRuns((prev) => ({ ...prev, [option.nameSuffix]: { status: 'error', error: String(e) } }))
+    }
+  }
+
+  function rejectEdgeCase(nameSuffix: string) {
+    setEdgeCaseOptions((prev) => prev.filter((o) => o.nameSuffix !== nameSuffix))
+    setEdgeCaseRuns((prev) => {
+      const next = { ...prev }
+      delete next[nameSuffix]
+      return next
+    })
+  }
+
   async function run(write: boolean) {
     setState('running')
     setResult(null)
     setError('')
     try {
       const call = write ? generateFlow : previewFlow
-      const response = await call({ flow: SAMPLE_FLOW, useLlm, maxRepairAttempts: 2 })
+      const response = await call({ flow, useLlm, maxRepairAttempts: 2 })
       setResult(response)
       setSelectedFile(response.files[0]?.relativePath ?? null)
       setState('done')
@@ -40,6 +113,12 @@ export function FlowsPage() {
       setError(String(e))
       setState('error')
     }
+  }
+
+  function resetToSample() {
+    setFlow(SAMPLE_FLOW)
+    setResult(null)
+    setState('idle')
   }
 
   const shownFiles = result
@@ -53,9 +132,22 @@ export function FlowsPage() {
     <div>
       <h1>Flows</h1>
       <p>
-        Generates a Selenium + Reqnroll BDD suite from a recorded flow. The Inspector backend
-        (P7) is live, but this page isn't wired to it yet (P8/P9) — it still runs a built-in
-        sample flow against the practice login site.
+        Generates a Selenium + Reqnroll BDD suite from a recorded flow.{' '}
+        {isSample ? (
+          <>
+            No flow was handed off from Inspect, so this is running the built-in sample flow
+            ("{flow.name}") against the practice login site. Capture your own on the{' '}
+            <Link to="/inspect">Inspect</Link> page and click "Send to Generate" when you're done.
+          </>
+        ) : (
+          <>
+            Showing <strong>{flow.name}</strong> ({flow.steps.length} step(s)), captured via
+            Inspect.{' '}
+            <button onClick={resetToSample} style={{ fontSize: '0.85em' }}>
+              Use the sample flow instead
+            </button>
+          </>
+        )}
       </p>
 
       <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', margin: '1rem 0', flexWrap: 'wrap' }}>
@@ -69,7 +161,52 @@ export function FlowsPage() {
         <button onClick={() => run(true)} disabled={state === 'running'}>
           Generate &amp; write
         </button>
+        <Link to="/export" state={{ flow }}>
+          Export as test case docs →
+        </Link>
+        <button onClick={loadEdgeCases} disabled={edgeCaseState === 'loading'}>
+          {edgeCaseState === 'loading' ? 'Thinking…' : '✨ Suggest edge cases'}
+        </button>
       </div>
+
+      {edgeCaseNote && <p style={{ opacity: 0.7 }}>{edgeCaseNote}</p>}
+
+      {edgeCaseOptions.length > 0 && (
+        <div style={{ margin: '1rem 0', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          <strong>Suggested edge cases — review before accepting, nothing is written yet</strong>
+          {edgeCaseOptions.map((option) => {
+            const run = edgeCaseRuns[option.nameSuffix]
+            return (
+              <div
+                key={option.nameSuffix}
+                style={{ border: '1px solid #444', borderRadius: 4, padding: '0.75rem' }}
+              >
+                <div style={{ fontWeight: 600 }}>{option.title}</div>
+                <div style={{ opacity: 0.8, margin: '0.25rem 0' }}>{option.rationale}</div>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button onClick={() => runEdgeCase(option, false)} disabled={run?.status === 'running'}>
+                    Preview
+                  </button>
+                  <button onClick={() => runEdgeCase(option, true)} disabled={run?.status === 'running'}>
+                    Accept &amp; generate
+                  </button>
+                  <button onClick={() => rejectEdgeCase(option.nameSuffix)}>Reject</button>
+                  {run?.status === 'running' && <span>working…</span>}
+                  {run?.status === 'error' && <span style={{ color: '#cf222e' }}>{run.error}</span>}
+                  {run?.status === 'done' && run.response && (
+                    <span style={{ color: SOURCE_LABELS[run.response.source]?.tone }}>
+                      {SOURCE_LABELS[run.response.source]?.text ?? run.response.source}
+                      {run.response.writtenPaths.length > 0
+                        ? ` · ${run.response.writtenPaths.length} files written`
+                        : ' · preview only'}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
 
       {state === 'running' && (
         <p>

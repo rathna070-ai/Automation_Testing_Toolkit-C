@@ -48,6 +48,11 @@ builder.Services.AddScoped<HybridTestCodeGenerator>();
 builder.Services.AddWebTestToolkitInspector();
 builder.Services.AddHostedService<InspectorBroadcastService>();
 
+// Test runs outlive the request that started them too (dotnet test can take tens of
+// seconds) — same singleton-tracker shape as Inspector sessions, just without a browser to
+// clean up on shutdown.
+builder.Services.AddSingleton<TestRunSessionManager>();
+
 // The Vite dev server runs on a different origin (localhost:5173) than the API
 // (localhost:5000). SignalR needs credentials for its handshake, so the policy has to
 // name the frontend origin explicitly rather than use a wildcard.
@@ -87,6 +92,7 @@ app.UseAuthorization();
 app.MapControllers();
 app.MapHub<PingHub>("/hubs/ping");
 app.MapHub<InspectHub>("/hubs/inspect");
+app.MapHub<RunHub>("/hubs/run");
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok", utc = DateTime.UtcNow }))
     .WithName("Health");

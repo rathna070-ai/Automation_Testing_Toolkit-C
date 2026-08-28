@@ -16,6 +16,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<FailureAnalysisSkill>();
         services.AddScoped<ScriptGenerationSkill>();
         services.AddScoped<ScriptRepairSkill>();
+        services.AddScoped<TestCaseProseSkill>();
+        services.AddScoped<StepLabelSuggestionSkill>();
+        services.AddScoped<EdgeCaseGenerationSkill>();
         return services;
     }
 }
