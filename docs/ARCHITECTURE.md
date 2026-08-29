@@ -52,20 +52,23 @@ WebTestToolkit/
 │   ├── WebTestToolkit.Llm/                 Groq client + prompt skills
 │   ├── WebTestToolkit.Inspector/           Selenium + injected JS capture overlay
 │   ├── WebTestToolkit.Execution/           dotnet test runner + .trx parsing + run reports
-│   ├── WebTestToolkit.Export/              Test case docs → Excel / XML
-│   └── WebTestToolkit.*.Tests/             One per library above, + Export.Tests
+│   └── WebTestToolkit.Export/              Test case docs → Excel / XML
 ├── frontend/                               React + Vite + TypeScript
 │   ├── src/pages/                          Inspect · Flows · Run · Report · Failures · Export · Settings
 │   ├── src/api/                            Typed fetch wrappers + SignalR client
 │   └── src/components/
 ├── tests/
+│   ├── WebTestToolkit.*.Tests/             One per backend library above, all in one place
 │   └── WebTestToolkit.GeneratedTests/      The output. Standalone.
 └── docs/
 ```
 
 Every backend library depends only on `Contracts`; `Export` also depends on `Llm` (calls the
 test-case prose skill directly, same reason `Execution` calls the script-generation skill). `Api`
-references all of them. Nothing references `GeneratedTests`.
+references all of them. All test projects live under `tests/` — each `*.Tests` project references
+its corresponding `backend/` library (e.g. `tests/WebTestToolkit.Execution.Tests` →
+`backend/WebTestToolkit.Execution`), while `GeneratedTests` is the one exception: it has zero
+project references to the toolkit at all, by design, so it stays runnable standalone.
 
 ---
 

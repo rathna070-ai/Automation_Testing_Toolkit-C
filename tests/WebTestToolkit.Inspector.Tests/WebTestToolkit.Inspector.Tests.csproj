@@ -21,8 +21,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\WebTestToolkit.Llm\WebTestToolkit.Llm.csproj" />
-    <ProjectReference Include="..\WebTestToolkit.Contracts\WebTestToolkit.Contracts.csproj" />
+    <ProjectReference Include="..\..\backend\WebTestToolkit.Inspector\WebTestToolkit.Inspector.csproj" />
+    <ProjectReference Include="..\..\backend\WebTestToolkit.Contracts\WebTestToolkit.Contracts.csproj" />
   </ItemGroup>
 
 </Project>

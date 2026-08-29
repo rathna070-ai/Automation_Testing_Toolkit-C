@@ -7,7 +7,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "backend", "backend", "{52D6
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebTestToolkit.Api", "backend\WebTestToolkit.Api\WebTestToolkit.Api.csproj", "{88753189-0B85-4FD5-B82E-9D1D3A800516}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebTestToolkit.CodeGenerator.Tests", "backend\WebTestToolkit.CodeGenerator.Tests\WebTestToolkit.CodeGenerator.Tests.csproj", "{D5F969AF-DECA-48FD-80E0-2DA3E4B12A07}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebTestToolkit.CodeGenerator.Tests", "tests\WebTestToolkit.CodeGenerator.Tests\WebTestToolkit.CodeGenerator.Tests.csproj", "{D5F969AF-DECA-48FD-80E0-2DA3E4B12A07}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebTestToolkit.CodeGenerator", "backend\WebTestToolkit.CodeGenerator\WebTestToolkit.CodeGenerator.csproj", "{96460554-E52A-4D73-83BA-8F333219231F}"
 EndProject
@@ -25,13 +25,13 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{5D63ED31
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebTestToolkit.GeneratedTests", "tests\WebTestToolkit.GeneratedTests\WebTestToolkit.GeneratedTests.csproj", "{A46AB879-151E-4E98-924B-523670ECC43C}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebTestToolkit.Llm.Tests", "backend\WebTestToolkit.Llm.Tests\WebTestToolkit.Llm.Tests.csproj", "{17352E65-F11B-45A5-9DB2-2D8899B52379}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebTestToolkit.Llm.Tests", "tests\WebTestToolkit.Llm.Tests\WebTestToolkit.Llm.Tests.csproj", "{17352E65-F11B-45A5-9DB2-2D8899B52379}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebTestToolkit.Execution.Tests", "backend\WebTestToolkit.Execution.Tests\WebTestToolkit.Execution.Tests.csproj", "{7408942C-7AD9-46CA-BAEE-49C1F7355897}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebTestToolkit.Execution.Tests", "tests\WebTestToolkit.Execution.Tests\WebTestToolkit.Execution.Tests.csproj", "{7408942C-7AD9-46CA-BAEE-49C1F7355897}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebTestToolkit.Inspector.Tests", "backend\WebTestToolkit.Inspector.Tests\WebTestToolkit.Inspector.Tests.csproj", "{F43F68FE-56AF-48C9-AB5A-265EC97AE306}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebTestToolkit.Inspector.Tests", "tests\WebTestToolkit.Inspector.Tests\WebTestToolkit.Inspector.Tests.csproj", "{F43F68FE-56AF-48C9-AB5A-265EC97AE306}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebTestToolkit.Export.Tests", "backend\WebTestToolkit.Export.Tests\WebTestToolkit.Export.Tests.csproj", "{B11ACA73-F24F-49E8-9A25-680A40842A42}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebTestToolkit.Export.Tests", "tests\WebTestToolkit.Export.Tests\WebTestToolkit.Export.Tests.csproj", "{B11ACA73-F24F-49E8-9A25-680A40842A42}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -97,7 +97,6 @@ Global
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{88753189-0B85-4FD5-B82E-9D1D3A800516} = {52D6414C-700C-4EB2-8EC4-654966B0DC63}
-		{D5F969AF-DECA-48FD-80E0-2DA3E4B12A07} = {52D6414C-700C-4EB2-8EC4-654966B0DC63}
 		{96460554-E52A-4D73-83BA-8F333219231F} = {52D6414C-700C-4EB2-8EC4-654966B0DC63}
 		{1ABFFF2D-7796-40BD-A15E-71C25E5BEA08} = {52D6414C-700C-4EB2-8EC4-654966B0DC63}
 		{1A72C2BE-5B85-4A2E-93B7-F5BCF41876CD} = {52D6414C-700C-4EB2-8EC4-654966B0DC63}
@@ -105,9 +104,10 @@ Global
 		{9BEB231F-D07D-4D3B-9F21-131A4162390C} = {52D6414C-700C-4EB2-8EC4-654966B0DC63}
 		{99CCF064-09F5-4DBF-8F1B-394C1422944F} = {52D6414C-700C-4EB2-8EC4-654966B0DC63}
 		{A46AB879-151E-4E98-924B-523670ECC43C} = {5D63ED31-AF3D-4B4F-9C91-D51C1AC4F308}
-		{17352E65-F11B-45A5-9DB2-2D8899B52379} = {52D6414C-700C-4EB2-8EC4-654966B0DC63}
-		{7408942C-7AD9-46CA-BAEE-49C1F7355897} = {52D6414C-700C-4EB2-8EC4-654966B0DC63}
-		{F43F68FE-56AF-48C9-AB5A-265EC97AE306} = {52D6414C-700C-4EB2-8EC4-654966B0DC63}
-		{B11ACA73-F24F-49E8-9A25-680A40842A42} = {52D6414C-700C-4EB2-8EC4-654966B0DC63}
+		{D5F969AF-DECA-48FD-80E0-2DA3E4B12A07} = {5D63ED31-AF3D-4B4F-9C91-D51C1AC4F308}
+		{17352E65-F11B-45A5-9DB2-2D8899B52379} = {5D63ED31-AF3D-4B4F-9C91-D51C1AC4F308}
+		{7408942C-7AD9-46CA-BAEE-49C1F7355897} = {5D63ED31-AF3D-4B4F-9C91-D51C1AC4F308}
+		{F43F68FE-56AF-48C9-AB5A-265EC97AE306} = {5D63ED31-AF3D-4B4F-9C91-D51C1AC4F308}
+		{B11ACA73-F24F-49E8-9A25-680A40842A42} = {5D63ED31-AF3D-4B4F-9C91-D51C1AC4F308}
 	EndGlobalSection
 EndGlobal

@@ -9,7 +9,7 @@ namespace WebTestToolkit.Inspector.Tests;
 //
 // [Explicit] because it needs Chrome installed and (on a cold machine) Selenium Manager
 // needs the network to fetch a driver. The rest of the suite must stay runnable anywhere:
-//     dotnet test backend/WebTestToolkit.Inspector.Tests --filter "Category=Browser"
+//     dotnet test tests/WebTestToolkit.Inspector.Tests --filter "Category=Browser"
 [Explicit("Requires a local Chrome installation.")]
 [Category("Browser")]
 public class InspectorSessionBrowserTests
