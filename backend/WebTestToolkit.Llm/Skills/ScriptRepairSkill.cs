@@ -15,8 +15,12 @@ public class ScriptRepairSkill : LlmSkill<ScriptRepairInput, GeneratedFileSet>
 
     protected override string PromptName => "script-repair";
     protected override string SchemaName => "generated_test_files";
-    protected override string ReasoningEffort => "high";
-    protected override int MaxCompletionTokens => 8192;
+    // Matches ScriptGenerationSkill's own medium/6000 pairing, for the same reason — and
+    // this call is the more likely one to hit a Groq request-size limit in practice, since
+    // BuildMessages below replays the *entire* original prompt plus the model's full prior
+    // response on top of the new repair turn.
+    protected override string ReasoningEffort => "medium";
+    protected override int MaxCompletionTokens => 6000;
 
     // Slightly warmer than generation: at near-zero temperature a model that misreads an
     // error tends to return the identical wrong fix again, burning the retry budget.

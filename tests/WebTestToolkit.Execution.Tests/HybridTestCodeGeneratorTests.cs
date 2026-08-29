@@ -206,6 +206,36 @@ public class HybridTestCodeGeneratorTests
         Assert.That(result.WrittenPaths, Is.Empty, "WriteToProject:false must not touch the real project.");
     }
 
+    // A real, large captured flow (many steps, each carrying DOM context) hit a genuine
+    // Groq 413 in practice — the request was too large before the model ever ran. Rather
+    // than spend a request only to have it bounce, an oversized prompt should skip AI
+    // generation entirely and go straight to the deterministic generator.
+    [Test]
+    public async Task OversizedPrompt_SkipsAiEntirelyAndFallsBackToDeterministic()
+    {
+        var flow = BuildFlow();
+        // Comfortably over the 6000-token (~24,000-char) estimate threshold on its own.
+        flow.Steps[0].Element = new CapturedElement
+        {
+            TagName = "div",
+            OuterHtmlSnippet = new string('a', 30_000),
+            Candidates = [new LocatorCandidate("id", "probe", 100)]
+        };
+
+        // Zero scripted responses: if the code actually called Groq, this would throw a
+        // TransportError ("No more scripted responses") rather than silently succeeding —
+        // so a passing DeterministicFallback here proves the call was skipped, not attempted.
+        var generator = BuildGenerator(new SequencedChatClient());
+
+        var result = await generator.GenerateAsync(flow, Options());
+
+        Assert.That(result.Source, Is.EqualTo(GenerationSource.DeterministicFallback));
+        Assert.That(result.FallbackReason, Does.Contain("too large for AI generation"));
+        Assert.That(result.Attempts, Has.Count.EqualTo(1),
+            "Only the deterministic compile attempt should be recorded — no LLM call was made.");
+        Assert.That(result.Attempts[0].Kind, Is.EqualTo(GenerationAttemptKind.Deterministic));
+    }
+
     [Test]
     public async Task ValidLlmOutput_CompilesAndReportsLlmVerified()
     {

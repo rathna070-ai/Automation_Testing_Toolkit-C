@@ -24,6 +24,16 @@ public static class GherkinStepPlanner
         var plans = new List<StepPlan>();
         string? currentSection = null;
 
+        // Two different elements can legitimately produce the exact same label text (e.g.
+        // two differently-priced-looking items that both happen to show "$29.99", captured
+        // with nothing more specific to name them by). Left alone, that makes two Gherkin
+        // lines byte-identical — an ambiguous binding at runtime, invisible to the compiler
+        // — and their derived method names byte-identical too, which *is* a compile error.
+        // Disambiguate the same way StepLabeler.LocatorKeyFor already disambiguates locator
+        // keys: append a running count to the label itself, so every derived name and the
+        // Gherkin line/pattern all stay in agreement and unique together.
+        var labelOccurrences = new Dictionary<(string Section, string Label), int>();
+
         foreach (var step in flow.Steps.OrderBy(s => s.Order))
         {
             var previousSection = currentSection;
@@ -38,21 +48,25 @@ public static class GherkinStepPlanner
                 ? Naming.ToPascalCaseIdentifier(step.Label)
                 : step.LocatorKey;
 
+            var dedupeKey = (targetSection, step.Label);
+            var occurrence = labelOccurrences[dedupeKey] = labelOccurrences.GetValueOrDefault(dedupeKey) + 1;
+            var effectiveLabel = occurrence == 1 ? step.Label : $"{step.Label} ({occurrence})";
+
             var isParameterizedType = step.ActionType == ActionType.Type && step.InputValue is not null;
 
             var gherkinLine = isParameterizedType
-                ? $"{step.Label} \"{step.InputValue}\""
-                : step.Label;
+                ? $"{effectiveLabel} \"{step.InputValue}\""
+                : effectiveLabel;
 
             var bindingRegexPattern = isParameterizedType
-                ? $"{Regex.Escape(step.Label)} \"(.*)\""
-                : Regex.Escape(step.Label);
+                ? $"{Regex.Escape(effectiveLabel)} \"(.*)\""
+                : Regex.Escape(effectiveLabel);
 
             var pageObjectMethodName = step.ActionType == ActionType.Navigate
                 ? "NavigateTo"
-                : Naming.ToPascalCaseIdentifier(step.Label);
+                : Naming.ToPascalCaseIdentifier(effectiveLabel);
 
-            var bindingMethodName = targetSection + Naming.ToPascalCaseIdentifier(step.Label);
+            var bindingMethodName = targetSection + Naming.ToPascalCaseIdentifier(effectiveLabel);
 
             plans.Add(new StepPlan(step, pageName, locatorKey, targetSection, displayKeyword,
                 gherkinLine, bindingRegexPattern, pageObjectMethodName, bindingMethodName));

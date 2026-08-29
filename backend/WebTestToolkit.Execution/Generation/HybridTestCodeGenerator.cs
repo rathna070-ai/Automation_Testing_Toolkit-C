@@ -63,6 +63,27 @@ public class HybridTestCodeGenerator
         var bundle = _bundleBuilder.Build(flow, deterministicFiles);
         var existingBindings = _bundleBuilder.ExistingBindings(flow.Name);
 
+        // A large captured flow (many steps, each carrying DOM context) can assemble a
+        // prompt Groq's on_demand tier rejects outright with a 413 before the model ever
+        // runs — not a hypothetical, a real flow hit this. Estimate up front and skip
+        // straight to the deterministic generator rather than spending a request only to
+        // have it bounce; the estimate uses the same token unit ScriptGenerationSkill's own
+        // MaxCompletionTokens is measured in, so the two numbers stay comparable.
+        var estimatedPromptTokens = EstimatePromptTokens(bundle);
+        if (estimatedPromptTokens > MaxPromptTokens)
+        {
+            progress?.Report(
+                $"This flow's prompt is too large for AI generation (~{estimatedPromptTokens} estimated tokens, over the {MaxPromptTokens}-token limit) — using the deterministic generator instead…");
+            _logger.LogInformation(
+                "Skipping AI generation for '{Flow}': estimated prompt size {Estimated} exceeds the {Limit}-token limit",
+                flow.Name, estimatedPromptTokens, MaxPromptTokens);
+
+            return await FinishWithDeterministicAsync(
+                flow, deterministicSet, attempts, GenerationSource.DeterministicFallback,
+                $"This flow's prompt is too large for AI generation (~{estimatedPromptTokens} estimated tokens, over the {MaxPromptTokens}-token limit) — used the deterministic generator instead.",
+                options, progress, ct);
+        }
+
         GeneratedFileSet? previousResponse = null;
         string? previousResponseJson = null;
         IReadOnlyList<ValidationIssue> lastIssues = [];
@@ -107,7 +128,11 @@ public class HybridTestCodeGenerator
             previousResponse = skillResult.Value!;
             previousResponseJson = JsonSerializer.Serialize(previousResponse);
 
-            var candidate = BuildCandidateFiles(previousResponse);
+            // Preserve any PageObjects method an earlier, differently-named flow's already-
+            // generated Steps.cs still calls, that this flow's own output doesn't redefine —
+            // otherwise this flow's generation can silently break that other one.
+            var candidate = PageObjectMerger.MergeWithExisting(
+                BuildCandidateFiles(previousResponse), SolutionPaths.GeneratedTestsDirectory());
 
             progress?.Report("Checking the generated code…");
             var issues = StaticValidator.Validate(previousResponse, existingBindings).ToList();
@@ -178,7 +203,9 @@ public class HybridTestCodeGenerator
         CancellationToken ct)
     {
         var stopwatch = Stopwatch.StartNew();
-        var candidate = deterministicSet.ToDictionary(f => f.RelativePath, f => f.Content, StringComparer.Ordinal);
+        var candidate = PageObjectMerger.MergeWithExisting(
+            deterministicSet.ToDictionary(f => f.RelativePath, f => f.Content, StringComparer.Ordinal),
+            SolutionPaths.GeneratedTestsDirectory());
 
         progress?.Report("Compiling the deterministic output…");
         var build = await _sandbox.TryBuildAsync(candidate, PathsToClear(flow, deterministicSet), ct);
@@ -200,13 +227,17 @@ public class HybridTestCodeGenerator
             };
         }
 
-        var written = options.WriteToProject ? _writer.Write(deterministicSet) : [];
-        progress?.Report($"Compiled. {deterministicSet.Count} files {(options.WriteToProject ? "written" : "ready")}.");
+        // The sandbox just compiled the *merged* candidate — writing deterministicSet here
+        // instead would silently drop whatever PageObjectMerger just preserved, undoing the
+        // fix by writing the very content the compile step proved was wrong.
+        var mergedFiles = ToGeneratedFiles(candidate);
+        var written = options.WriteToProject ? _writer.Write(mergedFiles) : [];
+        progress?.Report($"Compiled. {mergedFiles.Count} files {(options.WriteToProject ? "written" : "ready")}.");
 
         return new CodeGenerationResult
         {
             Source = source,
-            Files = deterministicSet,
+            Files = mergedFiles,
             DeterministicFiles = deterministicSet,
             Attempts = attempts,
             FallbackReason = fallbackReason,
@@ -267,4 +298,20 @@ public class HybridTestCodeGenerator
 
     private static bool HasBlockingIssues(IReadOnlyList<ValidationIssue> issues) =>
         issues.Any(i => i.Severity == IssueSeverity.Blocking);
+
+    // Matches ScriptGenerationSkill.MaxCompletionTokens — kept as one round number rather
+    // than trying to mirror Groq's exact (undocumented) on_demand-tier request cap.
+    private const int MaxPromptTokens = 6000;
+
+    // No tokenizer dependency: chars/4 is the standard rough heuristic for English text and
+    // is good enough to gate against a request that's an order of magnitude too large,
+    // which is the actual failure mode this guards — not a precise budget.
+    private static int EstimatePromptTokens(ScriptGenerationInput input)
+    {
+        var totalChars = input.FlowName.Length + input.FlowJson.Length + input.ProjectFile.Length +
+            input.SupportApi.Length + input.GoldSample.Length + input.ReferenceImplementation.Length +
+            input.ExistingProjectIndex.Length + (input.UntrustedPageContent?.Length ?? 0);
+
+        return totalChars / 4;
+    }
 }

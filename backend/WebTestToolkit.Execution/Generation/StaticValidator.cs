@@ -429,8 +429,10 @@ public static partial class StaticValidator
         }
     }
 
-    // Handles both block bodies and expression-bodied members.
-    private static string? ExtractMethodBody(string content, int searchFrom)
+    // Handles both block bodies and expression-bodied members. Internal (not private) so
+    // PageObjectMerger — same project, same "parse a generated method out of C# source
+    // text" need — can reuse it rather than duplicating the brace-counting logic.
+    internal static string? ExtractMethodBody(string content, int searchFrom)
     {
         var arrow = content.IndexOf("=>", searchFrom, StringComparison.Ordinal);
         var brace = content.IndexOf('{', searchFrom);

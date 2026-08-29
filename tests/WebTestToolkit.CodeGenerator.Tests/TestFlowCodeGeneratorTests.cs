@@ -176,4 +176,64 @@ public class TestFlowCodeGeneratorTests
         var feature = files["Features/FlowNew1.feature"];
         Assert.That(feature, Does.Contain("Feature: flow new 1"));
     }
+
+    // Regression: two different elements can capture with the exact same label text (e.g.
+    // two identically-priced cart items, both labeled purely from their "$29.99" price with
+    // nothing more specific to name them by). That used to produce two [When(...)] methods
+    // in the Steps class with the identical name AND identical parameter list — CS0111 —
+    // and, independent of the compile error, two byte-identical Gherkin lines, which
+    // Reqnroll treats as an ambiguous binding at runtime.
+    [Test]
+    public void DuplicateStepLabels_AreDisambiguatedInsteadOfColliding()
+    {
+        var flow = BuildLoginFlow();
+        // Push the assertion to the end and insert both duplicate-label steps as "When"s
+        // ahead of it, so this test isn't also incidentally exercising DetermineSection.
+        flow.Steps.Single(s => s.ActionType == ActionType.AssertText).Order = 7;
+        flow.Steps.Add(new TestStep
+        {
+            Order = 5,
+            ActionType = ActionType.Click,
+            Label = "I click the item total",
+            PageName = "LoginPage",
+            LocatorKey = "ItemTotalA",
+            Element = new CapturedElement
+            {
+                TagName = "span",
+                Candidates = [new LocatorCandidate("css", "#item-a", 60)]
+            }
+        });
+        flow.Steps.Add(new TestStep
+        {
+            Order = 6,
+            ActionType = ActionType.Click,
+            Label = "I click the item total",
+            PageName = "LoginPage",
+            LocatorKey = "ItemTotalB",
+            Element = new CapturedElement
+            {
+                TagName = "span",
+                Candidates = [new LocatorCandidate("css", "#item-b", 60)]
+            }
+        });
+
+        var files = TestFlowCodeGenerator.Generate(flow);
+        var steps = files["Steps/LoginSteps.cs"];
+        var feature = files["Features/Login.feature"];
+
+        // Distinct method names with the identical parameter list — this is exactly what
+        // CS0111 fires on if they collide.
+        Assert.That(steps, Does.Contain("WhenIClickTheItemTotal("));
+        Assert.That(steps, Does.Contain("WhenIClickTheItemTotal2("));
+
+        // The second Gherkin line is disambiguated too — not just the method name — which
+        // is what keeps Reqnroll's binding resolution unambiguous at runtime.
+        Assert.That(feature, Does.Contain("And I click the item total (2)"));
+
+        // Each still drives its own, distinct locator — disambiguation didn't collapse them
+        // into calling the same page-object method.
+        var page = files["PageObjects/LoginPage.cs"];
+        Assert.That(page, Does.Contain("FindVisible(\"ItemTotalA\")"));
+        Assert.That(page, Does.Contain("FindVisible(\"ItemTotalB\")"));
+    }
 }

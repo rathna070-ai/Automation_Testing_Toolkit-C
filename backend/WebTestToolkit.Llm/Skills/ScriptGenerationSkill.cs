@@ -13,14 +13,18 @@ public class ScriptGenerationSkill : LlmSkill<ScriptGenerationInput, GeneratedFi
     protected override string PromptName => "script-generation";
     protected override string SchemaName => "generated_test_files";
 
-    // Open-ended authoring, and the user has consciously accepted a wait — worth the
-    // reasoning budget. Codegen is the one place where correctness dominates latency.
-    protected override string ReasoningEffort => "high";
+    // "medium", not "high": high-effort reasoning burns a large share of the completion
+    // budget thinking before it writes a single file, which pushes the combined
+    // prompt+completion size closer to Groq's on_demand-tier request cap — a real 413 on a
+    // large captured flow, not a hypothetical one. Medium is enough for this task; codegen
+    // isn't open-ended research, it's "reproduce this reference implementation, written
+    // better" (see the prompt's own framing).
+    protected override string ReasoningEffort => "medium";
     protected override double Temperature => 0.2;
 
-    // Reasoning tokens count against the completion budget on gpt-oss. Too small a cap and
-    // "high" effort burns it thinking, returning JSON cut in half.
-    protected override int MaxCompletionTokens => 8192;
+    // Lowered from 8192 alongside the effort drop, for the same reason: reasoning tokens
+    // count against this budget on gpt-oss, so the two settings move together.
+    protected override int MaxCompletionTokens => 6000;
 
     protected override string BuildUserMessage(ScriptGenerationInput input) => BuildPrompt(input);
 
