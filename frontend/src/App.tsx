@@ -7,6 +7,7 @@ import { RunPage } from './pages/RunPage'
 import { ReportPage } from './pages/ReportPage'
 import { FailuresPage } from './pages/FailuresPage'
 import { ExportPage } from './pages/ExportPage'
+import { AutoHealPage } from './pages/AutoHealPage'
 import { SettingsPage } from './pages/SettingsPage'
 
 function App() {
@@ -20,6 +21,7 @@ function App() {
         <Route path="report" element={<ReportPage />} />
         <Route path="failures" element={<FailuresPage />} />
         <Route path="export" element={<ExportPage />} />
+        <Route path="autoheal" element={<AutoHealPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
     </Routes>

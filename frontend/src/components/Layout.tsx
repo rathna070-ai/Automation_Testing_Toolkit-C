@@ -9,6 +9,7 @@ const links = [
   { to: '/report', label: 'Report' },
   { to: '/failures', label: 'Failures' },
   { to: '/export', label: 'Export' },
+  { to: '/autoheal', label: 'Auto-heal' },
   { to: '/settings', label: 'Settings' },
 ]
 

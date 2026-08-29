@@ -71,7 +71,7 @@ references all of them. Nothing references `GeneratedTests`.
 
 ## 2. Current status
 
-### Implemented — P1 through P11
+### Implemented — P1 through P12
 
 | Phase | Delivers | Key files |
 |---|---|---|
@@ -85,25 +85,35 @@ references all of them. Nothing references `GeneratedTests`.
 | **P9** | Generate end-to-end — Inspect→Generate handoff fully wired (`GET /{id}/flow` → router state → Flows/Export pages); skill 4 (edge-case generation) proposes overrides on existing steps only, with a Preview/Accept/Reject review UI; `EdgeCaseFlowBuilder` builds a real `TestFlow` deterministically. Skills 3 (assertion inference) and 5 (Outline expansion) deliberately deferred — see P13 | `frontend/src/pages/FlowsPage.tsx`, `Llm/Skills/EdgeCaseGenerationSkill.cs` |
 | **P10** | Execution + Report — `TestRunner`/`TrxParser` shell `dotnet test --logger trx` and parse the result (schema verified against two real runs, not guessed); live console over SignalR (`RunHub`, buffered for late subscribers); Run/Report pages; CSV/HTML export built client-side. Kept scenario-level failure screenshots rather than adding `[AfterStep]` capture | `Execution/{TestRunner,TrxParser}.cs`, `frontend/src/pages/{RunPage,ReportPage}.tsx` |
 | **P11** | Failure analyzer UI — reads the P10 run summary, filters to failures, shows error/stack trace/screenshot with a per-scenario "Analyze with Groq" button. Zero backend changes needed (skill 7 and its endpoint were already complete since P4) | `frontend/src/pages/FailuresPage.tsx` |
+| **P12** | Auto-heal — a locator picker (`GET /api/locators`, reading every `*.locators.json`) plus a single-capture re-inspect session that's an ordinary P7 `InspectorSession` under the hood (`/autoheal/start` opens Chrome at the broken locator's own page); the only new write is `LocatorJsonPatcher`, which rewrites exactly one key in one locator file, atomically, and never touches a `.cs` file | `Execution/Generation/LocatorJsonPatcher.cs`, `Api/Controllers/AutoHealController.cs`, `frontend/src/pages/AutoHealPage.tsx` |
 
-**Verified:** 137/137 backend tests, `dotnet build` clean (Debug + Release, 15 projects), frontend
+**Verified:** 145/145 backend tests, `dotnet build` clean (Debug + Release, 15 projects), frontend
 `tsc`/`vite build`/`oxlint` clean. Every phase from P5 on was also exercised live in a real browser
 against the running API before being marked done, including deliberately forcing real compiler
-errors (P5) and real test failures (P10/P11) rather than relying on canned data.
+errors (P5), real test failures (P10/P11), and — for P12 — a real broken locator healed back to a
+passing test through the actual UI and API, not a mock. **P12's own acceptance line, run for real**:
+`UsernameInput` was pointed at a nonexistent id, `dotnet test` was confirmed failing
+(`NoSuchElementException`, 2/2 failed), the real `/autoheal/start` endpoint opened a real Chrome
+window at the locator's page, `/autoheal/apply` patched the real `LoginPage.locators.json` back to
+`id=username`, `git diff` showed only that JSON file changed — zero `.cs` diffs — and `dotnet test`
+then passed 2/2. The React page itself was driven the same way (headless Selenium against
+`/autoheal`): the picker loads real data from `GET /api/locators`, starting a session opens a real
+backend-owned browser and the UI reflects `state: running` live, and the manual strategy/value entry
+path (the fallback for when scripting a second, backend-opened window isn't possible) reached the
+same "✓ Healed" confirmation.
 
 > The deterministic generator (P1–P2) is not superseded by the LLM work — it's what makes the LLM
 > work safe: the guaranteed-correct few-shot example in the codegen prompt, and the fallback when
 > the LLM's output won't compile.
 
 **Superseded:** the WPF app (`src/WebTestToolkit.App`) is retired, replaced by `frontend/` +
-`WebTestToolkit.Api`; its planned windows became React pages (all built except auto-heal's, P12).
+`WebTestToolkit.Api`; every planned window became a React page, including auto-heal's (P12).
 `Contracts` and `CodeGenerator` carried over untouched.
 
 ### Roadmap — not yet implemented
 
 | Phase | Adds | Acceptance |
 |---|---|---|
-| **P12** | Auto-heal — locator picker, single-capture re-inspect session, `LocatorJsonPatcher` rewrites one JSON entry | Break a locator → heal it → `git diff` shows zero `.cs` changes → test passes |
 | **P13** | Techniques adopted from a sibling project — see below | Each item lands as an isolated, tested addition to already-shipped code |
 
 #### P13 — techniques adopted from a similar project
@@ -140,17 +150,18 @@ Suggested order: 1 → 2 → 4 → 5 (independent, additive), then 3 last.
 
 ### Effort and model estimates
 
-Actuals for P3–P11: roughly 6 hrs for P1–P3; P4, P6, P8, P9, P10, P11 each finished within a single
-session on **Sonnet 5** (P11 in under an hour on **Haiku 4.5** — pure UI wiring onto an existing
-skill); P5 and P7 — the two phases integrating with something outside the model's control (a real
-compiler, a live browser's JS engine) rather than a known API — used **Opus 5** and landed inside
-their wider estimates. Pattern going forward: default to Sonnet 5; reach for Opus 5 only when a
-phase is mostly "make an external, non-deterministic system behave," not "write code against a
+Actuals for P3–P12: roughly 6 hrs for P1–P3; P4, P6, P8, P9, P10, P11, P12 each finished within a
+single session on **Sonnet 5** (P11 in under an hour on **Haiku 4.5** — pure UI wiring onto an
+existing skill; P12 landed comfortably inside its 6–8 hr estimate, reusing P7's `InspectorSession`
+wholesale meant the only genuinely new code was `LocatorJsonPatcher` and a thin controller/page
+around it); P5 and P7 — the two phases integrating with something outside the model's control (a
+real compiler, a live browser's JS engine) rather than a known API — used **Opus 5** and landed
+inside their wider estimates. Pattern going forward: default to Sonnet 5; reach for Opus 5 only when
+a phase is mostly "make an external, non-deterministic system behave," not "write code against a
 known API"; Haiku 4.5 is viable for small, mechanical, additive changes matching an existing pattern.
 
 | Phase | Effort (hrs) | Model |
 |---|---|---|
-| **P12** — Auto-heal | 6–8 | Sonnet 5 |
 | **P13** — items 1/2/5 | 1–2 hrs each | Haiku 4.5 viable (mechanical, additive) |
 | **P13** — item 4 (element-state capture) | 3–4 | Sonnet 5 (injected JS + 3 backend layers + browser test) |
 | **P13** — item 3 (severity tiers) | 3–4 | Sonnet 5 (changes a shared contract + a gating condition) |
@@ -270,9 +281,10 @@ Failures    POST   /api/failures/analyze       { scenarioResult } → FailureAna
             (Screenshot files are on disk with a path in ScenarioResult.ScreenshotPath; nothing
              serves them yet — no static-file mapping to the build-configuration-specific output dir.)
 
-Auto-heal   GET    /api/locators                                  → pages + keys                [P12]
-            POST   /api/autoheal/start         { page, key }      → single-capture session
-            POST   /api/autoheal/apply         { page, key, locator }
+Auto-heal   GET    /api/locators                                  → pages + keys                [built]
+  [built]   POST   /api/autoheal/start         { page, key }      → single-capture session (an
+                                                                     ordinary inspect session)
+            POST   /api/autoheal/apply         { page, key, strategy, value } → patched entry
 
 Settings    GET    /api/settings               → model, key-is-set flag (never the key itself)   [built]
             PUT    /api/settings               → { groqApiKey?, groqModel }
@@ -298,7 +310,7 @@ Settings    GET    /api/settings               → model, key-is-set flag (never
    config change.
 6. **Cost and latency per generation** — a high-effort codegen call plus up to N repair attempts is
    the most expensive operation in the tool; nothing caches it yet.
-7. **Auto-heal scope (P12)** — will handle "same element, changed locator" only; structural page
+7. **Auto-heal scope (P12)** — handles "same element, changed locator" only; structural page
    changes still need a re-record.
 8. **The hand-written sample suite depends on a live third-party site**
    (`the-internet.herokuapp.com`) and has been observed flaky (a `503` unrelated to any toolkit
