@@ -154,6 +154,7 @@ issues" button (P5's repair loop already automates that). The five genuinely new
 | Phase | Adds | Acceptance |
 |---|---|---|
 | **P16** | Risk mitigation — closes the actionable gaps found in §6's audit | Each item lands as an isolated, tested addition to already-shipped code |
+| **P17** | Export generated script files — a zip download of the generator's own `.feature`/`.cs`/`.json` output, extensions preserved | Unzips to the same folder layout `GeneratedProjectWriter` would write, no regeneration triggered |
 
 #### P16 — risk mitigation
 
@@ -203,6 +204,39 @@ to build).
 Suggested build order: 5 → 1 → 2 (independent, additive, smallest first) → 6 → 4, then 3 last — the
 only item touching OS process semantics rather than this codebase's own established patterns.
 
+#### P17 — export generated script files
+
+P6 shipped export for the test-case *documentation* view only (Excel/XML scenario summaries, via
+`ExportController` → `ExcelTestCaseWriter`/`XmlTestCaseWriter`). There's still no way to export the
+generator's own output — the `.feature`/`.cs`/`.json` files P5 produces and `FlowsPage.tsx` previews.
+Today those files only reach disk if the user clicks "Generate" (writes straight into
+`tests/WebTestToolkit.GeneratedTests/` via `GeneratedProjectWriter`); a Preview run, or any run the
+user doesn't want written into the local project, is visible only in the in-browser file viewer with
+no way to take it away. Each `GeneratedFile`
+(`backend/WebTestToolkit.Contracts/Models/GenerationModels.cs:54`) already carries its own correct
+`RelativePath` (e.g. `Steps/LoginSteps.cs`, `LocatorRepository/LoginPage.locators.json`) — the gap is
+purely the missing export/download, not any extension-mangling in the model or writer.
+
+A generated set spans 4+ folders (`Features/`, `Steps/`, `PageObjects/`, `LocatorRepository/`, plus
+support files), so a zip archive is the right shape — one entry per file, named by its own
+`RelativePath`, so unzipping reproduces the same layout `GeneratedProjectWriter` would have written
+with every extension already correct. Follows the existing P6 pattern exactly rather than inventing a
+new mechanism: a new `POST /api/export/generated-files/zip` action alongside `testcases/xlsx`/
+`testcases/xml` in `ExportController.cs`, a new `GeneratedFilesZipWriter` in `WebTestToolkit.Export`
+(BCL `System.IO.Compression.ZipArchive`, no new dependency) mirroring `ExcelTestCaseWriter`'s shape,
+and a new `ExportGeneratedFilesRequest(string FlowName, IReadOnlyList<GeneratedFile> Files)` DTO that
+takes the **already-generated** file list rather than a `TestFlow` to regenerate from — the frontend
+already holds `result.files`/`result.deterministicFiles` in memory after Preview/Generate, so export
+must never re-trigger `HybridTestCodeGenerator`/Groq just to zip content the client already has.
+Frontend: `client.ts` gets a `downloadGeneratedFilesZip` call reusing the existing `downloadFile()`
+blob-download helper (no new download mechanism), and `FlowsPage.tsx` gets a "Download as .zip"
+button next to the existing file viewer, wired to whichever set `compareDeterministic` currently has
+selected. Out of scope: per-edge-case zip export (`edgeCaseRuns` in `FlowsPage.tsx`) — same mechanism
+would work later, not needed for the base ask.
+`backend/WebTestToolkit.Api/Controllers/ExportController.cs`,
+`backend/WebTestToolkit.Export/GeneratedFilesZipWriter.cs` (new),
+`frontend/src/api/client.ts`, `frontend/src/pages/FlowsPage.tsx`.
+
 ### Effort and model estimates
 
 Actuals for P3–P13: roughly 6 hrs for P1–P3; P4, P6, P8, P9, P10, P11, P12 each finished within a
@@ -228,6 +262,7 @@ that's actually inventing a new shape, not just repeating one.
 | **P16** — item 6 (sample suite → `TinyWebServer`) | 1–2 | Sonnet 5 |
 | **P16** — item 4 (generation caching) | 2–4 | Sonnet 5 (new service + wiring + UI flag) |
 | **P16** — item 3 (Chrome Job Object) | 4–6 | Opus 5 (Windows P/Invoke, OS process-lifetime semantics — the "outside the model's control" tier P5/P7 already established) |
+| **P17** — export generated script files | 1–2 | Haiku 4.5 viable (reuses P6's own controller/writer/`downloadFile` shape end to end) |
 | **Deferred from P9/P10** — skills 3 & 5, `[AfterStep]` screenshots, screenshot preview | 10–14 | Sonnet 5 |
 
 ---
