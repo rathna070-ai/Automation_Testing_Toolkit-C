@@ -246,10 +246,14 @@ public class HybridTestCodeGenerator
 
     private static List<string> PathsToClear(TestFlow flow, IReadOnlyList<GeneratedFile> candidate)
     {
+        // Same sanitized identifier TestFlowCodeGenerator uses for the deterministic
+        // baseline's own file names — flow.Name is free text a user typed, not a path.
+        var className = Naming.ToPascalCaseIdentifier(flow.Name);
+
         var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            $"Features/{flow.Name}.feature",
-            $"Steps/{flow.Name}Steps.cs"
+            $"Features/{className}.feature",
+            $"Steps/{className}Steps.cs"
         };
 
         foreach (var file in candidate)

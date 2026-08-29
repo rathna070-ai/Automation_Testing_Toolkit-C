@@ -10,6 +10,11 @@ public static class StepsGenerator
 {
     public static string Generate(TestFlow flow, IReadOnlyList<StepPlan> plans)
     {
+        // flow.Name is free text the user typed into the "Flow name" box — sanitize before
+        // it becomes a class/constructor name, or a name like "flow new 1" produces invalid
+        // C# ("public class flow new 1Steps") instead of a compile error anyone can act on.
+        var className = Naming.ToPascalCaseIdentifier(flow.Name) + "Steps";
+
         var pageFields = plans
             .Select(p => p.PageName)
             .Distinct()
@@ -22,7 +27,7 @@ public static class StepsGenerator
         sb.AppendLine("namespace WebTestToolkit.GeneratedTests.Steps;");
         sb.AppendLine();
         sb.AppendLine("[Binding]");
-        sb.AppendLine($"public class {flow.Name}Steps");
+        sb.AppendLine($"public class {className}");
         sb.AppendLine("{");
 
         foreach (var (pageName, fieldName) in pageFields)
@@ -30,7 +35,7 @@ public static class StepsGenerator
 
         sb.AppendLine();
         var ctorParams = string.Join(", ", pageFields.Select(kv => $"{kv.Key} {Naming.ToCamelCase(kv.Key)}"));
-        sb.AppendLine($"    public {flow.Name}Steps({ctorParams})");
+        sb.AppendLine($"    public {className}({ctorParams})");
         sb.AppendLine("    {");
         foreach (var (pageName, fieldName) in pageFields)
             sb.AppendLine($"        {fieldName} = {Naming.ToCamelCase(pageName)};");

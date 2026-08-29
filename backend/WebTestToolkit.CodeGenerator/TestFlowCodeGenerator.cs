@@ -10,10 +10,14 @@ public static class TestFlowCodeGenerator
     {
         var plans = GherkinStepPlanner.Plan(flow);
 
+        // Sanitize once for file names too — flow.Name is free text a user typed, and an
+        // unsanitized "flow new 1" would also produce a path with a raw space in it.
+        var className = Naming.ToPascalCaseIdentifier(flow.Name);
+
         var files = new Dictionary<string, string>
         {
-            [$"Features/{flow.Name}.feature"] = FeatureFileGenerator.Generate(flow, plans),
-            [$"Steps/{flow.Name}Steps.cs"] = StepsGenerator.Generate(flow, plans)
+            [$"Features/{className}.feature"] = FeatureFileGenerator.Generate(flow, plans),
+            [$"Steps/{className}Steps.cs"] = StepsGenerator.Generate(flow, plans)
         };
 
         foreach (var page in PageObjectGenerator.Generate(plans))

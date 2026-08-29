@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace WebTestToolkit.CodeGenerator;
 
-internal static class Naming
+public static class Naming
 {
     // "I enter username" -> "IEnterUsername"
     public static string ToPascalCaseIdentifier(string text)

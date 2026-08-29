@@ -31,7 +31,9 @@ public static class GherkinStepPlanner
             var displayKeyword = targetSection == previousSection ? "And" : targetSection;
             currentSection = targetSection;
 
-            var pageName = string.IsNullOrWhiteSpace(step.PageName) ? $"{flow.Name}Page" : step.PageName;
+            var pageName = string.IsNullOrWhiteSpace(step.PageName)
+                ? Naming.ToPascalCaseIdentifier(flow.Name) + "Page"
+                : step.PageName;
             var locatorKey = string.IsNullOrWhiteSpace(step.LocatorKey)
                 ? Naming.ToPascalCaseIdentifier(step.Label)
                 : step.LocatorKey;

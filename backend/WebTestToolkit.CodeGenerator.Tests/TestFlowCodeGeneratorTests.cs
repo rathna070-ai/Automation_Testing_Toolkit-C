@@ -151,4 +151,29 @@ public class TestFlowCodeGeneratorTests
         Assert.That(json, Does.Contain("\"value\": \"username\""));
         Assert.That(json, Does.Contain("\"value\": \"button[type='submit']\""));
     }
+
+    // Regression: flow.Name is free text a user types into the "Flow name" box on the
+    // Inspect page — nothing stops them typing "flow new 1". That used to land verbatim in
+    // the class name and file path ("public class flow new 1Steps"), producing CS1514/
+    // CS1513/CS0116 instead of a compiling file.
+    [Test]
+    public void FlowNameWithSpaces_ProducesAValidClassNameAndFilePath()
+    {
+        var flow = BuildLoginFlow();
+        flow.Name = "flow new 1";
+        var files = TestFlowCodeGenerator.Generate(flow);
+
+        Assert.That(files.Keys, Does.Contain("Features/FlowNew1.feature"));
+        Assert.That(files.Keys, Does.Contain("Steps/FlowNew1Steps.cs"));
+
+        var steps = files["Steps/FlowNew1Steps.cs"];
+        Assert.That(steps, Does.Contain("public class FlowNew1Steps"));
+        Assert.That(steps, Does.Contain("public FlowNew1Steps(LoginPage loginPage)"));
+        Assert.That(steps, Does.Not.Contain("flow new 1"));
+
+        // The Gherkin title is prose, not an identifier — the raw name is fine, and reads
+        // better, there.
+        var feature = files["Features/FlowNew1.feature"];
+        Assert.That(feature, Does.Contain("Feature: flow new 1"));
+    }
 }

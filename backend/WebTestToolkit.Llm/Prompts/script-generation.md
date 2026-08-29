@@ -14,6 +14,12 @@ Exactly three kinds of file, all inside an existing .NET 8 test project:
 - `Steps/<FlowName>Steps.cs` — a Reqnroll `[Binding]` class.
 - `PageObjects/<PageName>.cs` — one page object per page the flow touches.
 
+`<FlowName>` above is not literal: the flow's name is free text a person typed (it may contain
+spaces, punctuation, anything) — convert it to PascalCase before using it as a class name or a
+file name (e.g. a flow named "flow new 1" becomes `FlowNew1`, so the class is
+`public class FlowNew1Steps` in `Steps/FlowNew1Steps.cs`). The Gherkin `Feature:`/`Scenario:`
+lines are prose, not identifiers, and may use the flow's name verbatim.
+
 Locators go in the `locators` array of your response, **not** into a file. The toolkit
 serializes them itself.
 

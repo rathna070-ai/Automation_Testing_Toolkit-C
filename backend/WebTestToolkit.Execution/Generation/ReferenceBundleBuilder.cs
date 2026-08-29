@@ -105,10 +105,14 @@ public class ReferenceBundleBuilder
 
     private static bool BelongsToFlow(string relativePath, string flowName)
     {
+        // flowName is free text a user typed; TestFlowCodeGenerator writes its files under
+        // the sanitized identifier, so comparisons here must use the same one or a flow
+        // like "flow new 1" would never recognize its own about-to-be-replaced files.
+        var className = Naming.ToPascalCaseIdentifier(flowName);
         var fileName = Path.GetFileName(relativePath);
-        return fileName.Equals($"{flowName}.feature", StringComparison.OrdinalIgnoreCase)
-            || fileName.Equals($"{flowName}.feature.cs", StringComparison.OrdinalIgnoreCase)
-            || fileName.Equals($"{flowName}Steps.cs", StringComparison.OrdinalIgnoreCase);
+        return fileName.Equals($"{className}.feature", StringComparison.OrdinalIgnoreCase)
+            || fileName.Equals($"{className}.feature.cs", StringComparison.OrdinalIgnoreCase)
+            || fileName.Equals($"{className}Steps.cs", StringComparison.OrdinalIgnoreCase);
     }
 
     private static IEnumerable<string> EnumerateProjectSources(string projectDir)
