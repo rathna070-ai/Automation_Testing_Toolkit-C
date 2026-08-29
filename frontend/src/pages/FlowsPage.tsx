@@ -262,14 +262,30 @@ export function FlowsPage() {
                     <td style={{ padding: '4px 10px' }}>{a.durationMs}</td>
                     <td style={{ padding: '4px 10px' }}>{a.promptTokens + a.completionTokens}</td>
                     <td style={{ padding: '4px 10px' }}>
-                      {a.issues.length === 0
-                        ? '—'
-                        : a.issues.slice(0, 5).map((i, n) => (
-                            <div key={n}>
-                              <code>{i.code}</code> {i.file ? `${i.file}:${i.line ?? '?'} ` : ''}
-                              {i.message.slice(0, 160)}
-                            </div>
-                          ))}
+                      {a.issues.length === 0 ? (
+                        '—'
+                      ) : (
+                        <>
+                          {a.issues
+                            .filter((i) => i.severity !== 'advisory')
+                            .slice(0, 5)
+                            .map((i, n) => (
+                              <div key={n}>
+                                <code>{i.code}</code> {i.file ? `${i.file}:${i.line ?? '?'} ` : ''}
+                                {i.message.slice(0, 160)}
+                              </div>
+                            ))}
+                          {/* Advisory issues never block the build — shown separately, muted,
+                              so they read as a suggestion rather than a build error. */}
+                          {a.issues
+                            .filter((i) => i.severity === 'advisory')
+                            .map((i, n) => (
+                              <div key={`advisory-${n}`} style={{ opacity: 0.7, marginTop: n === 0 ? '4px' : 0 }}>
+                                💡 <code>{i.code}</code> {i.message.slice(0, 160)}
+                              </div>
+                            ))}
+                        </>
+                      )}
                     </td>
                   </tr>
                 ))}

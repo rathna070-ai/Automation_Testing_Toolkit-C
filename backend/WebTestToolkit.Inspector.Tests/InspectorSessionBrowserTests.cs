@@ -35,13 +35,35 @@ public class InspectorSessionBrowserTests
     <body><div id="flash">You logged into a secure area!</div></body></html>
     """;
 
+    // Real element state (P13 item 4) is only observable against real form controls — a
+    // required <select> with real options, a checkbox, and a maxlength'd text field.
+    private const string FormPage = """
+    <!doctype html>
+    <html><head><title>Form</title></head>
+    <body>
+      <form>
+        <label for="notes">Notes</label>
+        <input type="text" id="notes" maxlength="10">
+        <label for="country">Country</label>
+        <select id="country" required>
+          <option value="">Choose...</option>
+          <option value="us">United States</option>
+          <option value="ca">Canada</option>
+        </select>
+        <label for="agree">I agree</label>
+        <input type="checkbox" id="agree">
+      </form>
+    </body></html>
+    """;
+
     private TinyWebServer _server = null!;
 
     [SetUp]
     public void SetUp() => _server = new TinyWebServer(new Dictionary<string, string>
     {
         ["/login"] = LoginPage,
-        ["/secure"] = SecurePage
+        ["/secure"] = SecurePage,
+        ["/form"] = FormPage
     });
 
     [TearDown]
@@ -202,6 +224,66 @@ public class InspectorSessionBrowserTests
             Assert.That(steps[1].ActionType, Is.EqualTo(ActionType.Navigate));
             Assert.That(steps[1].PageName, Is.EqualTo("SecurePage"));
             Assert.That(steps[1].SuggestedLabel, Is.EqualTo("I open the secure page"));
+        }
+        finally
+        {
+            await session.StopAsync(CancellationToken.None);
+        }
+    }
+
+    // Real element state (P13 item 4): without this, the model only has the raw outerHTML
+    // snippet to infer a <select>'s real options or a checkbox's state from — a real bug in
+    // a sibling project came from exactly that gap. Proves the whole pipeline against a real
+    // browser: overlay capture -> RawCapture -> LocatorRanker.ToCapturedElement.
+    [Test]
+    public async Task CapturesRealElementStateForSelectCheckboxAndMaxLength()
+    {
+        var session = await InspectorSession.StartAsync(
+            new InspectorStartRequest("Form", $"{_server.BaseUrl}/form", Headless: true),
+            CancellationToken.None);
+
+        try
+        {
+            var driver = session.Driver;
+
+            driver.FindElement(By.Id("notes")).SendKeys("hello" + Keys.Tab);
+
+            // WebDriver's click on an <option> is special-cased to select it directly,
+            // firing `change` on the <select> — no separate "open the dropdown" click needed
+            // (and one would otherwise show up as its own, distinct capture).
+            driver.FindElement(By.CssSelector("#country option[value='ca']")).Click();
+
+            driver.FindElement(By.Id("agree")).Click();
+
+            // navigate, notes, country (change), a stray click the option-click also fires
+            // against the select itself in headless mode, agree.
+            await PollUntilStepsAsync(session, expectedSteps: 5);
+
+            var steps = session.Steps;
+            var notes = steps.Single(s => s.Element?.Id == "notes");
+            // WebDriver's click on an <option> in headless Chrome also dispatches a separate
+            // click captured against the <select> itself (target resolution quirk of a
+            // native dropdown with no real open/close UI in headless mode) — that stray
+            // click carries no value or options and isn't what this test is about; the
+            // `change`-driven capture (ActionType.Type) is the one carrying real state.
+            var country = steps.Single(s => s.Element?.TagName == "select" && s.ActionType == ActionType.Type);
+            var agree = steps.Single(s => s.Element?.Id == "agree");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(notes.Element!.MaxLength, Is.EqualTo(10));
+
+                Assert.That(country.Element!.Required, Is.True);
+                Assert.That(country.Element!.Options, Is.Not.Null);
+                Assert.That(country.Element!.Options!.Select(o => o.Value),
+                    Is.EqualTo(new[] { "", "us", "ca" }));
+                Assert.That(country.Element!.Options!.Single(o => o.Value == "ca").Selected, Is.True);
+                Assert.That(country.Element!.Options!.Single(o => o.Value == "us").Selected, Is.False);
+
+                Assert.That(agree.Element!.Checked, Is.True);
+                Assert.That(agree.Element!.Options, Is.Null,
+                    "Options must only be populated for a <select>.");
+            });
         }
         finally
         {

@@ -24,11 +24,12 @@
 (function () {
   'use strict';
 
-  var VERSION = 3;
+  var VERSION = 4;
   var QUEUE_KEY = '__wtt_queue';
   var MAX_QUEUE = 200;
   var MAX_HTML = 300;
   var MAX_TEXT = 120;
+  var MAX_OPTIONS = 25;
 
   // Already live at this version: just make sure capture is on and bail out. This is the
   // common path — the C# side re-injects blindly rather than asking first.
@@ -253,6 +254,34 @@
     return out;
   }
 
+  // ---------------------------------------------------------------- element state
+  //
+  // Without this, the model only has the raw outerHTML snippet to infer a <select>'s real
+  // options, or a checkbox's current state, from — a real bug in a sibling project came
+  // from exactly that gap (guessing led to calling .SendKeys() on a dropdown). Capturing it
+  // directly here means the model never has to guess.
+
+  function selectOptionsFor(el) {
+    if (!el.options) return null;
+    var out = [];
+    for (var i = 0; i < el.options.length && i < MAX_OPTIONS; i++) {
+      var opt = el.options[i];
+      out.push({ value: opt.value, text: trim(opt.textContent, MAX_TEXT) || '', selected: !!opt.selected });
+    }
+    return out;
+  }
+
+  function checkedStateFor(el) {
+    var type = (el.getAttribute('type') || '').toLowerCase();
+    if (el.tagName === 'INPUT' && (type === 'checkbox' || type === 'radio')) return !!el.checked;
+    return null;
+  }
+
+  function maxLengthFor(el) {
+    // HTMLInputElement/HTMLTextAreaElement default maxLength to -1 when unset.
+    return typeof el.maxLength === 'number' && el.maxLength >= 0 ? el.maxLength : null;
+  }
+
   // ---------------------------------------------------------------- capture
 
   function describe(el, kind, value) {
@@ -272,7 +301,11 @@
       ancestors: ancestorContext(el),
       url: window.location.href,
       at: Date.now(),
-      candidates: buildCandidates(el)
+      candidates: buildCandidates(el),
+      checked: checkedStateFor(el),
+      required: typeof el.required === 'boolean' ? el.required : null,
+      maxLength: maxLengthFor(el),
+      options: selectOptionsFor(el)
     };
   }
 

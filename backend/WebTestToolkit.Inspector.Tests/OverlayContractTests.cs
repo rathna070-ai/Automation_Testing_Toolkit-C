@@ -86,7 +86,11 @@ public class OverlayContractTests
           "candidates": [
             { "strategy": "id", "value": "login", "kind": "id" },
             { "strategy": "css", "value": "form > button", "kind": "cssPath" }
-          ]
+          ],
+          "checked": null,
+          "required": false,
+          "maxLength": null,
+          "options": null
         }]
         """;
 
@@ -102,6 +106,9 @@ public class OverlayContractTests
             Assert.That(parsed[0].Text, Is.EqualTo("Login"));
             Assert.That(parsed[0].Candidates, Has.Count.EqualTo(2));
             Assert.That(parsed[0].Candidates[0].Kind, Is.EqualTo("id"));
+            Assert.That(parsed[0].Required, Is.False);
+            Assert.That(parsed[0].Checked, Is.Null);
+            Assert.That(parsed[0].Options, Is.Null);
         });
 
         var element = LocatorRanker.ToCapturedElement(parsed[0]);

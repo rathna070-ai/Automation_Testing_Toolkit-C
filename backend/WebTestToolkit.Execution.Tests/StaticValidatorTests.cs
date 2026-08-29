@@ -225,10 +225,10 @@ public class StaticValidatorTests
         public class LoginSteps
         {
             [Given(@"I am on the login page")]
-            public void GivenIAmOnTheLoginPage() { }
+            public void GivenIAmOnTheLoginPage() { _page.NavigateTo(); }
 
             [When(@"I enter the username ""(.*)""")]
-            public void WhenIEnterTheUsername(string value) { }
+            public void WhenIEnterTheUsername(string value) { _page.EnterUsername(value); }
 
             [Then(@"I should see a success message")]
             public void ThenIShouldSeeASuccessMessage()
@@ -268,6 +268,30 @@ public class StaticValidatorTests
             ]), []);
 
         Assert.That(issues.Any(i => i.Code == "WTT150"), Is.True);
+    }
+
+    [Test]
+    public void FeatureStepThatMatchesOnlyIgnoringCase_GetsADistinctActionableMessage()
+    {
+        // "the login page" vs "The Login Page" — same wording, wrong casing. Reqnroll's
+        // step matching is case-sensitive, so this still fails at runtime; the message
+        // should say so specifically rather than reading identically to a genuinely
+        // missing binding.
+        var featureWithWrongCasing = ValidFeature.Replace(
+            "Given I am on the login page",
+            "Given I am on The Login Page");
+
+        var issues = StaticValidator.Validate(
+            FileSet(files:
+            [
+                new GeneratedFileDto("Features/Login.feature", featureWithWrongCasing),
+                new GeneratedFileDto("Steps/LoginSteps.cs", CoveredSteps)
+            ]), []);
+
+        var issue = issues.FirstOrDefault(i => i.Code == "WTT150");
+        Assert.That(issue, Is.Not.Null);
+        Assert.That(issue!.Message, Does.Contain("only when case is ignored"),
+            "A case-only mismatch must be distinguished from a genuinely missing binding: " + issue.Message);
     }
 
     [Test]
@@ -415,5 +439,211 @@ public class StaticValidatorTests
 
         Assert.That(issues.Any(i => i.Code == "WTT151"), Is.False,
             "Only Then steps carry a verification obligation.");
+    }
+
+    // --- Given/When steps must act (WTT152): an empty action step passes silently too.
+
+    [TestCase("{ }", true, TestName = "EmptyGivenBody_IsRejected")]
+    [TestCase("{ // TODO: implement }", true, TestName = "GivenBodyWithOnlyAComment_IsRejected")]
+    [TestCase("{ _page.NavigateTo(); }", false, TestName = "GivenBodyThatActs_IsAccepted")]
+    public void GivenStepMustAct(string body, bool expectIssue)
+    {
+        var steps = $$"""
+            using Reqnroll;
+            namespace WebTestToolkit.GeneratedTests.Steps;
+
+            [Binding]
+            public class LoginSteps
+            {
+                [Given(@"I am on the login page")]
+                public void GivenIAmOnTheLoginPage()
+                {{body}}
+            }
+            """;
+
+        var issues = StaticValidator.Validate(
+            FileSet(files: [new GeneratedFileDto("Steps/LoginSteps.cs", steps)]), []);
+
+        Assert.That(issues.Any(i => i.Code == "WTT152"), Is.EqualTo(expectIssue),
+            string.Join("; ", issues.Select(i => $"{i.Code} {i.Message}")));
+    }
+
+    [TestCase("{ }", true, TestName = "EmptyWhenBody_IsRejected")]
+    [TestCase("{ _page.EnterUsername(value); }", false, TestName = "WhenBodyThatActs_IsAccepted")]
+    public void WhenStepMustAct(string body, bool expectIssue)
+    {
+        var steps = $$""""
+            using Reqnroll;
+            namespace WebTestToolkit.GeneratedTests.Steps;
+
+            [Binding]
+            public class LoginSteps
+            {
+                [When(@"I enter the username ""(.*)""")]
+                public void WhenIEnterTheUsername(string value)
+                {{body}}
+            }
+            """";
+
+        var issues = StaticValidator.Validate(
+            FileSet(files: [new GeneratedFileDto("Steps/LoginSteps.cs", steps)]), []);
+
+        Assert.That(issues.Any(i => i.Code == "WTT152"), Is.EqualTo(expectIssue),
+            string.Join("; ", issues.Select(i => $"{i.Code} {i.Message}")));
+    }
+
+    [Test]
+    public void ExpressionBodiedGivenThatActs_IsAccepted()
+    {
+        var steps = """
+            using Reqnroll;
+            namespace WebTestToolkit.GeneratedTests.Steps;
+
+            [Binding]
+            public class LoginSteps
+            {
+                [Given(@"I am on the login page")]
+                public void GivenIAmOnTheLoginPage() => _page.NavigateTo();
+            }
+            """;
+
+        var issues = StaticValidator.Validate(
+            FileSet(files: [new GeneratedFileDto("Steps/LoginSteps.cs", steps)]), []);
+
+        Assert.That(issues.Any(i => i.Code == "WTT152"), Is.False);
+    }
+
+    [Test]
+    public void ThenSteps_AreNotCheckedForActing()
+    {
+        var steps = """
+            using Reqnroll;
+            namespace WebTestToolkit.GeneratedTests.Steps;
+
+            [Binding]
+            public class LoginSteps
+            {
+                [Then(@"I should see a success message")]
+                public void ThenIShouldSeeASuccessMessage() { Assert.That(true, Is.True); }
+            }
+            """;
+
+        var issues = StaticValidator.Validate(
+            FileSet(files: [new GeneratedFileDto("Steps/LoginSteps.cs", steps)]), []);
+
+        Assert.That(issues.Any(i => i.Code == "WTT152"), Is.False,
+            "WTT152 is scoped to Given/When only — Then already has its own WTT151 obligation.");
+    }
+
+    // --- Issue severity (default) and duplicated interaction blocks (WTT160, Advisory).
+
+    [Test]
+    public void ValidationIssue_DefaultsToBlockingSeverity()
+    {
+        // Every issue emitted before IssueSeverity existed must keep behaving exactly as it
+        // did — Blocking is the default so the 3-arg-plus-message constructor call sites
+        // scattered across this file don't have to change.
+        var issue = new ValidationIssue(IssueSource.Static, "WTT001", null, null, "test");
+        Assert.That(issue.Severity, Is.EqualTo(IssueSeverity.Blocking));
+    }
+
+    [Test]
+    public void DuplicatedWaitThenInteractShape_IsFlaggedAsAdvisoryNotBlocking()
+    {
+        var pageObject = """
+            using OpenQA.Selenium;
+            using OpenQA.Selenium.Support.UI;
+            using WebTestToolkit.GeneratedTests.Support;
+
+            namespace WebTestToolkit.GeneratedTests.PageObjects;
+
+            public class CheckoutPage
+            {
+                private readonly IWebDriver _driver;
+                private readonly WebDriverWait _wait;
+                private readonly PageLocators _locators;
+
+                public CheckoutPage(DriverContext driverContext)
+                {
+                    _driver = driverContext.Driver;
+                    _wait = new WebDriverWait(_driver, TimeSpan.FromSeconds(10));
+                    _locators = LocatorRepository.Load("CheckoutPage");
+                }
+
+                public void EnterFirstName(string value)
+                {
+                    var element = FindVisible("FirstNameInput");
+                    element.Clear();
+                    element.SendKeys(value);
+                }
+
+                public void EnterLastName(string value)
+                {
+                    var element = FindVisible("LastNameInput");
+                    element.Clear();
+                    element.SendKeys(value);
+                }
+
+                private IWebElement FindVisible(string locatorKey)
+                {
+                    var entry = _locators.Locators[locatorKey];
+                    var by = LocatorRepository.ToBy(entry);
+                    return _wait.Until(driver => driver.FindElement(by));
+                }
+            }
+            """;
+
+        var issues = StaticValidator.Validate(
+            FileSet(files:
+            [
+                new GeneratedFileDto("Features/Login.feature", ValidFeature),
+                new GeneratedFileDto("PageObjects/CheckoutPage.cs", pageObject),
+                new GeneratedFileDto("Steps/LoginSteps.cs", CoveredSteps)
+            ]), []);
+
+        var issue = issues.FirstOrDefault(i => i.Code == "WTT160");
+        Assert.That(issue, Is.Not.Null,
+            "EnterFirstName/EnterLastName share the same wait-then-interact shape and should be flagged: " +
+            string.Join("; ", issues.Select(i => $"{i.Code} {i.Message}")));
+        Assert.That(issue!.Severity, Is.EqualTo(IssueSeverity.Advisory),
+            "A duplicated-shape nit must never block generation the way a real correctness issue does.");
+        Assert.That(issue.Message, Does.Contain("EnterFirstName"));
+        Assert.That(issue.Message, Does.Contain("EnterLastName"));
+    }
+
+    [Test]
+    public void DistinctPageObjectMethods_AreNotFlaggedAsDuplicated()
+    {
+        var issues = StaticValidator.Validate(FileSet(), []);
+
+        Assert.That(issues.Any(i => i.Code == "WTT160"), Is.False,
+            "ValidPageObject's methods have genuinely different shapes and must not be flagged: " +
+            string.Join("; ", issues.Select(i => $"{i.Code} {i.Message}")));
+    }
+
+    [Test]
+    public void OneLinerMethodsThatHappenToMatch_AreNotFlaggedAsDuplicated()
+    {
+        // A single-statement body duplicated across methods isn't the copy-paste-a-multi-
+        // step-block problem this check exists for — only bodies with 2+ statements count.
+        var pageObject = """
+            namespace WebTestToolkit.GeneratedTests.PageObjects;
+
+            public class LoginPage
+            {
+                public void ClickLogin() { FindVisible("LoginButton").Click(); }
+                public void ClickCancel() { FindVisible("CancelButton").Click(); }
+            }
+            """;
+
+        var issues = StaticValidator.Validate(
+            FileSet(files:
+            [
+                new GeneratedFileDto("Features/Login.feature", ValidFeature),
+                new GeneratedFileDto("PageObjects/LoginPage.cs", pageObject),
+                new GeneratedFileDto("Steps/LoginSteps.cs", CoveredSteps)
+            ]), []);
+
+        Assert.That(issues.Any(i => i.Code == "WTT160"), Is.False);
     }
 }

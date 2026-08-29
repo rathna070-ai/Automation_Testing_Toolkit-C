@@ -23,6 +23,13 @@ lines are prose, not identifiers, and may use the flow's name verbatim.
 Locators go in the `locators` array of your response, **not** into a file. The toolkit
 serializes them itself.
 
+Each captured element in the `<flow>` may carry real state — `options` (a `<select>`'s actual
+option list), `checked` (a checkbox/radio's current state), `required`, `maxLength`. When present,
+use it instead of guessing from `outerHtmlSnippet`: pick an option's real `value` for a dropdown
+selection rather than inventing one, and never call a text-entry method like `SendKeys` on an
+element whose `options` array is present — that means it's a `<select>`, which Selenium requires
+`SelectElement`/`.SelectByValue(...)` for instead.
+
 ## Hard rules
 
 1. **Complete files only.** Never write `// ... rest unchanged ...`, never truncate, never
@@ -55,6 +62,10 @@ serializes them itself.
 10. **Every `Then` step must actually verify something** — a real `Assert`, or a `throw` on
     failure. Never an empty body, never only a comment. An empty `Then` step passes silently
     forever: it reports success while checking nothing, which is worse than a failing test.
+10a. **Every `Given`/`When` step must actually do something** — call a page object method.
+    Never an empty body, never only a comment. A no-op action step also passes silently, and
+    a later `Then` ends up checking whatever page state was already there instead of the
+    state the action was supposed to produce.
 11. **No `Thread.Sleep`.** Waiting is `FindVisible`'s job, via `WebDriverWait`.
 12. **Use NUnit constraint syntax**: `Assert.That(actual, Does.Contain("x"))`,
     `Assert.That(flag, Is.True)`.

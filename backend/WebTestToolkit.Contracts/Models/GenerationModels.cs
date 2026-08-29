@@ -33,12 +33,23 @@ public enum IssueSource
     Transport
 }
 
+// Blocking gates the build and the repair loop — the default, and what every issue before
+// this enum existed already behaved as. Advisory rides along for the UI (a style nit, e.g.
+// a duplicated interaction block) without spending a repair attempt arguing over something
+// that isn't actually broken.
+public enum IssueSeverity
+{
+    Blocking,
+    Advisory
+}
+
 public record ValidationIssue(
     IssueSource Source,
     string Code,
     string? File,
     int? Line,
-    string Message);
+    string Message,
+    IssueSeverity Severity = IssueSeverity.Blocking);
 
 public record GeneratedFile(string RelativePath, string Content);
 

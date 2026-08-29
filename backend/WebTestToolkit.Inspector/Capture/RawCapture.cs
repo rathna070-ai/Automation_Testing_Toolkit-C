@@ -25,6 +25,22 @@ public sealed record RawCapture
     public string Url { get; init; } = "";
     public long At { get; init; }
     public List<RawCandidate> Candidates { get; init; } = new();
+
+    // Real element state, not inferable from the outerHTML snippet alone — a <select>'s
+    // real option list, a checkbox/radio's current state, whether a field is required, and
+    // its max length. Null when the concept doesn't apply to this element (e.g. Checked is
+    // null for a text input, Options is null for anything but a <select>).
+    public bool? Checked { get; init; }
+    public bool? Required { get; init; }
+    public int? MaxLength { get; init; }
+    public List<RawSelectOption>? Options { get; init; }
+}
+
+public sealed record RawSelectOption
+{
+    public string Value { get; init; } = "";
+    public string Text { get; init; } = "";
+    public bool Selected { get; init; }
 }
 
 // Strategy is one of "id" | "css" | "xpath" | "name" (the only four LocatorRepository.ToBy

@@ -146,6 +146,39 @@ public class HybridTestCodeGeneratorTests
         return JsonSerializer.Serialize(valid with { Files = files });
     }
 
+    // A second page-object method sharing EnterUserName's exact wait-then-interact shape,
+    // differing only by locator key — WTT160, Advisory. Compiles fine and is never called
+    // from any step; nothing about this response is actually broken.
+    private static string ModelResponseWithAdvisoryOnly()
+    {
+        var valid = JsonSerializer.Deserialize<GeneratedFileSet>(ValidModelResponse())!;
+
+        var duplicatedMethod = """
+
+                    public void EnterOtherField(string value)
+                    {
+                        var element = FindVisible("OtherField");
+                        element.Clear();
+                        element.SendKeys(value);
+                    }
+            """;
+
+        var pageWithDuplicate = valid.Files.Single(f => f.Path.StartsWith("PageObjects/"))
+            .Content.Replace(
+                "private IWebElement FindVisible(string locatorKey)",
+                duplicatedMethod + "\n\n            private IWebElement FindVisible(string locatorKey)");
+
+        var files = valid.Files
+            .Select(f => f.Path.StartsWith("PageObjects/") ? f with { Content = pageWithDuplicate } : f)
+            .ToList();
+
+        var locators = valid.Locators
+            .Append(new GeneratedLocatorDto($"{FlowName}Page", "OtherField", "id", "other", "https://the-internet.herokuapp.com/login"))
+            .ToList();
+
+        return JsonSerializer.Serialize(valid with { Files = files, Locators = locators });
+    }
+
     private static HybridTestCodeGenerator BuildGenerator(IChatClient chatClient)
     {
         var prompts = new PromptLibrary();
@@ -185,6 +218,28 @@ public class HybridTestCodeGeneratorTests
             "Attempts: " + string.Join(" | ", result.Attempts.SelectMany(a => a.Issues).Select(i => $"{i.Code} {i.Message}")));
         Assert.That(result.Attempts, Has.Count.EqualTo(1));
         Assert.That(result.DeterministicFiles, Is.Not.Empty, "The deterministic set is always kept for the compare view.");
+    }
+
+    // An Advisory issue (WTT160, a duplicated-shape style nit) must ride along for the UI
+    // without ever gating the build or burning a repair attempt on something that isn't
+    // actually broken — this is the whole point of severity existing as a concept.
+    [Test]
+    public async Task AdvisoryOnlyIssue_DoesNotBlockGenerationOrTriggerRepair()
+    {
+        var chatClient = new SequencedChatClient(
+            ChatResult.Success(ModelResponseWithAdvisoryOnly(), "openai/gpt-oss-120b", 500, 200));
+
+        var result = await BuildGenerator(chatClient).GenerateAsync(BuildFlow(), Options());
+
+        Assert.That(result.Source, Is.EqualTo(GenerationSource.LlmVerified),
+            "Attempts: " + string.Join(" | ", result.Attempts.SelectMany(a => a.Issues).Select(i => $"{i.Code} {i.Message}")));
+        Assert.That(result.Attempts, Has.Count.EqualTo(1),
+            "An advisory-only issue must not trigger a second, repair attempt.");
+        Assert.That(result.Attempts[0].Succeeded, Is.True);
+
+        var advisory = result.Attempts[0].Issues.FirstOrDefault(i => i.Code == "WTT160");
+        Assert.That(advisory, Is.Not.Null, "The advisory issue should still be surfaced for the UI.");
+        Assert.That(advisory!.Severity, Is.EqualTo(IssueSeverity.Advisory));
     }
 
     [Test]

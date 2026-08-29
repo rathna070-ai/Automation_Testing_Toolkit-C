@@ -71,7 +71,7 @@ references all of them. Nothing references `GeneratedTests`.
 
 ## 2. Current status
 
-### Implemented — P1 through P12
+### Implemented — P1 through P13
 
 | Phase | Delivers | Key files |
 |---|---|---|
@@ -82,12 +82,14 @@ references all of them. Nothing references `GeneratedTests`.
 | **P6** | Test case export to Excel (ClosedXML) / XML, via `TestCaseSuiteBuilder` + prose skill 6. Ships the recorded happy path only — LLM edge cases, Scenario Outline rows, and last-run status are schema-ready in `Contracts` but not wired into this exporter yet (skill 4 feeds *Generate*, not this; `TestFlow` still has no Outline representation) | `Export/TestCaseSuiteBuilder.cs`, `Export/{Excel,Xml}TestCaseWriter.cs` |
 | **P7** | Inspector backend — one hand-driven Chrome session per capture, injected JS overlay (hover-highlight, click/change capture, idempotent SPA re-injection), `LocatorRanker` scoring (`id` 100 > `data-testid` 95 > `name` 85 > `aria-label` 78 > `placeholder` 72 > text-xpath 60 > generated-id 45 > css 35 > absolute xpath 10), deterministic `StepLabeler`, live SignalR feed | `Inspector/InspectorSession.cs`, `Inspector/Capture/LocatorRanker.cs` |
 | **P8** | Inspect UI — start form, live step table over the P7 feed, action-type/label/locator editing, pause/resume/stop; skill 2 (step-label suggestion, read-only, review-before-apply) | `frontend/src/pages/InspectPage.tsx`, `Llm/Skills/StepLabelSuggestionSkill.cs` |
-| **P9** | Generate end-to-end — Inspect→Generate handoff fully wired (`GET /{id}/flow` → router state → Flows/Export pages); skill 4 (edge-case generation) proposes overrides on existing steps only, with a Preview/Accept/Reject review UI; `EdgeCaseFlowBuilder` builds a real `TestFlow` deterministically. Skills 3 (assertion inference) and 5 (Outline expansion) deliberately deferred — see P13 | `frontend/src/pages/FlowsPage.tsx`, `Llm/Skills/EdgeCaseGenerationSkill.cs` |
+| **P9** | Generate end-to-end — Inspect→Generate handoff fully wired (`GET /{id}/flow` → router state → Flows/Export pages); skill 4 (edge-case generation) proposes overrides on existing steps only, with a Preview/Accept/Reject review UI; `EdgeCaseFlowBuilder` builds a real `TestFlow` deterministically. Skills 3 (assertion inference) and 5 (Outline expansion) deliberately deferred — see §3 | `frontend/src/pages/FlowsPage.tsx`, `Llm/Skills/EdgeCaseGenerationSkill.cs` |
 | **P10** | Execution + Report — `TestRunner`/`TrxParser` shell `dotnet test --logger trx` and parse the result (schema verified against two real runs, not guessed); live console over SignalR (`RunHub`, buffered for late subscribers); Run/Report pages; CSV/HTML export built client-side. Kept scenario-level failure screenshots rather than adding `[AfterStep]` capture | `Execution/{TestRunner,TrxParser}.cs`, `frontend/src/pages/{RunPage,ReportPage}.tsx` |
 | **P11** | Failure analyzer UI — reads the P10 run summary, filters to failures, shows error/stack trace/screenshot with a per-scenario "Analyze with Groq" button. Zero backend changes needed (skill 7 and its endpoint were already complete since P4) | `frontend/src/pages/FailuresPage.tsx` |
 | **P12** | Auto-heal — a locator picker (`GET /api/locators`, reading every `*.locators.json`) plus a single-capture re-inspect session that's an ordinary P7 `InspectorSession` under the hood (`/autoheal/start` opens Chrome at the broken locator's own page); the only new write is `LocatorJsonPatcher`, which rewrites exactly one key in one locator file, atomically, and never touches a `.cs` file | `Execution/Generation/LocatorJsonPatcher.cs`, `Api/Controllers/AutoHealController.cs`, `frontend/src/pages/AutoHealPage.tsx` |
+| **P13** | Five techniques adopted from a sibling project (see the grounding note below): `WTT152` rejects a no-op `Given`/`When` body the same way `WTT151` already rejects a no-op `Then`; `WTT150` now distinguishes a case-only mismatch ("matches only when case is ignored") from a genuinely missing binding; `IssueSeverity {Blocking, Advisory}` on `ValidationIssue`, with a new `WTT160` structural duplicated-interaction-block check emitted as `Advisory` so a style nit can never gate the build or burn a repair attempt; the Inspect overlay now captures real element state (`<select>` options, checkbox/radio `checked`, `required`, `maxLength`) instead of leaving the model to guess from an HTML snippet (overlay version bumped 3→4); and `InspectPage` shows every ranked locator alternative with a rationale, not just the best one | `Execution/Generation/StaticValidator.cs`, `Contracts/Models/GenerationModels.cs`, `Inspector/Overlay/inspector-overlay.js`, `Inspector/Capture/{RawCapture,LocatorRanker}.cs`, `frontend/src/pages/InspectPage.tsx` |
 
-**Verified:** 145/145 backend tests, `dotnet build` clean (Debug + Release, 15 projects), frontend
+**Verified:** 162/162 backend tests (plus 5/5 opt-in `[Category("Browser")]` real-Chrome tests —
+`dotnet test --filter "Category=Browser"`), `dotnet build` clean (Debug + Release, 15 projects), frontend
 `tsc`/`vite build`/`oxlint` clean. Every phase from P5 on was also exercised live in a real browser
 against the running API before being marked done, including deliberately forcing real compiler
 errors (P5), real test failures (P10/P11), and — for P12 — a real broken locator healed back to a
@@ -100,7 +102,17 @@ then passed 2/2. The React page itself was driven the same way (headless Seleniu
 `/autoheal`): the picker loads real data from `GET /api/locators`, starting a session opens a real
 backend-owned browser and the UI reflects `state: running` live, and the manual strategy/value entry
 path (the fallback for when scripting a second, backend-opened window isn't possible) reached the
-same "✓ Healed" confirmation.
+same "✓ Healed" confirmation. **P13**, in the same session: a new opt-in real-Chrome test
+(`CapturesRealElementStateForSelectCheckboxAndMaxLength`, `[Category("Browser")]`) proves item 4's
+whole pipeline — overlay capture → `RawCapture` → `LocatorRanker.ToCapturedElement` — against a real
+`<select>`/checkbox/maxlength'd field, including a real quirk it caught along the way (WebDriver's
+click on an `<option>` in headless Chrome also dispatches a separate click captured against the
+`<select>` itself; the test asserts on the `change`-driven capture specifically, not on there being
+exactly one). A dedicated integration test drives `HybridTestCodeGenerator` end-to-end with a
+scripted LLM response carrying a genuine `WTT160` duplication to prove item 3's severity split for
+real — `LlmVerified` on the first attempt, one attempt total, the advisory issue still present in
+`Attempts[0].Issues` — not just that the enum compiles. `InspectPage`/`FlowsPage` (items 5/3's UI)
+were confirmed to render with zero browser console errors against the live app.
 
 > The deterministic generator (P1–P2) is not superseded by the LLM work — it's what makes the LLM
 > work safe: the guaranteed-correct few-shot example in the codegen prompt, and the fallback when
@@ -110,61 +122,39 @@ same "✓ Healed" confirmation.
 `WebTestToolkit.Api`; every planned window became a React page, including auto-heal's (P12).
 `Contracts` and `CodeGenerator` carried over untouched.
 
+**P13's grounding note**, for context on why it's five items and not more: a sibling Chrome-extension
+project (also LLM-driven Selenium generation) was reviewed. Most of its correctness-checking ideas
+were already implemented here, more strongly — a hard build-gate via `StaticValidator`, not a
+UI-only warning — so **not** adopted: the `Thread.Sleep` ban, exact step-case matching, empty-
+assertion detection, DRY-helper guidance, locator design, DPAPI key storage, and the manual "fix
+issues" button (P5's repair loop already automates that). The five genuinely new ideas are items
+1–5 in the table row above.
+
 ### Roadmap — not yet implemented
 
-| Phase | Adds | Acceptance |
-|---|---|---|
-| **P13** | Techniques adopted from a sibling project — see below | Each item lands as an isolated, tested addition to already-shipped code |
-
-#### P13 — techniques adopted from a similar project
-
-A sibling Chrome-extension project (also LLM-driven Selenium generation) was reviewed. Most of its
-correctness-checking ideas are already implemented here, more strongly — a hard build-gate via
-`StaticValidator`, not a UI-only warning — so **not** being re-adopted: the `Thread.Sleep` ban,
-exact step-case matching, empty-assertion detection, DRY-helper guidance, locator design, DPAPI key
-storage, and the manual "fix issues" button (P5's repair loop already automates that). Five items
-are genuinely new:
-
-1. **Given/When steps must also act** — new `StaticValidator` rule (`WTT152`) mirroring the
-   existing empty-`Then` check, so a no-op action step can't silently pass. `StaticValidator.cs` +
-   a matching prompt-rule addition.
-2. **Distinguish "no binding" from "case-only mismatch"** — `WTT150` currently reports both
-   identically; a case-insensitive retry with a distinct message makes repair feedback actionable
-   instead of ambiguous. `StaticValidator.cs`.
-3. **Advisory (non-blocking) issue severity** — add `IssueSeverity {Blocking, Advisory}` to
-   `ValidationIssue`, plus a structural duplicated-interaction-block check emitted as `Advisory` so
-   it doesn't burn repair attempts on a style nit. Touches `GenerationModels.cs`,
-   `StaticValidator.cs`, `HybridTestCodeGenerator.cs`'s success gate, and the Generate page's issue
-   rendering — the one item changing a shared contract, so schedule it last.
-4. **Capture real element state during Inspect** — select options, checkbox/radio `checked`,
-   `required`, `maxLength`. Today the LLM only has a raw HTML snippet to infer this from; a real bug
-   in the sibling project (`.SendKeys()` called on a dropdown) motivated this. Touches the injected
-   overlay JS, `RawCapture`, `CapturedElement`, `LocatorRanker` — and makes P9's deferred skills
-   schema-ready for free.
-5. **Show ranked locator alternatives in Inspect** — `CapturedElement.Candidates` already holds up
-   to 8 ranked options; only the best is shown today. Add a rationale-per-strategy lookup and an
-   expandable list in `InspectPage.tsx` so a manual override is informed, not a guess. Lowest risk —
-   pure additive display.
-
-Suggested order: 1 → 2 → 4 → 5 (independent, additive), then 3 last.
+_Nothing currently planned beyond P1–P13._
 
 ### Effort and model estimates
 
-Actuals for P3–P12: roughly 6 hrs for P1–P3; P4, P6, P8, P9, P10, P11, P12 each finished within a
+Actuals for P3–P13: roughly 6 hrs for P1–P3; P4, P6, P8, P9, P10, P11, P12 each finished within a
 single session on **Sonnet 5** (P11 in under an hour on **Haiku 4.5** — pure UI wiring onto an
 existing skill; P12 landed comfortably inside its 6–8 hr estimate, reusing P7's `InspectorSession`
 wholesale meant the only genuinely new code was `LocatorJsonPatcher` and a thin controller/page
 around it); P5 and P7 — the two phases integrating with something outside the model's control (a
 real compiler, a live browser's JS engine) rather than a known API — used **Opus 5** and landed
-inside their wider estimates. Pattern going forward: default to Sonnet 5; reach for Opus 5 only when
-a phase is mostly "make an external, non-deterministic system behave," not "write code against a
-known API"; Haiku 4.5 is viable for small, mechanical, additive changes matching an existing pattern.
+inside their wider estimates. **P13 is a data point worth calling out**: all five items were
+originally estimated as a Sonnet-5-default, Haiku-viable-per-item split, but landed in one session
+entirely on **Haiku 4.5** — including item 3 (a shared-contract change, `IssueSeverity` on
+`ValidationIssue`) and item 4 (injected JS + three backend layers + a new opt-in browser test), both
+pre-estimated as needing Sonnet 5. Revised pattern going forward: default to Sonnet 5; reach for
+Opus 5 only when a phase is mostly "make an external, non-deterministic system behave," not "write
+code against a known API"; Haiku 4.5 is viable for more than originally assumed when the change is
+additive to an already-well-established pattern in the codebase (five isolated rule/field additions
+to `StaticValidator`/`CapturedElement`, not a new subsystem) — reserve the Sonnet-5 default for work
+that's actually inventing a new shape, not just repeating one.
 
 | Phase | Effort (hrs) | Model |
 |---|---|---|
-| **P13** — items 1/2/5 | 1–2 hrs each | Haiku 4.5 viable (mechanical, additive) |
-| **P13** — item 4 (element-state capture) | 3–4 | Sonnet 5 (injected JS + 3 backend layers + browser test) |
-| **P13** — item 3 (severity tiers) | 3–4 | Sonnet 5 (changes a shared contract + a gating condition) |
 | **Deferred from P9/P10** — skills 3 & 5, `[AfterStep]` screenshots, screenshot preview | 10–14 | Sonnet 5 |
 
 ---
@@ -200,8 +190,8 @@ OpenAI-compatible endpoint. Key facts that shape the design:
 Every skill degrades gracefully — the tool stays fully usable with no API key configured, verified
 at every phase that touches Groq. Skills 3 and 5 are deferred rather than half-built: skill 3 has no
 real gap to fill (assertions are already hand-capturable), and skill 5 needs real `Examples`-table
-support in `TestFlow` first (see P13's item 3 for the unrelated-but-similar "don't half-build a
-schema change" precedent from P6).
+support in `TestFlow` first — the same "don't half-build a schema change" discipline P6's own scope
+cut already established.
 
 ### Generate → validate → repair loop
 
@@ -267,7 +257,7 @@ Flows       POST   /api/flows/preview          { TestFlow, useLlm }  → files +
   [built]   POST   /api/flows/generate         { TestFlow, useLlm }  → files + provenance, writes to tests/
             POST   /api/flows/edge-cases       { TestFlow }          → suggested edge cases (skill 4),
                                                                         each with its own built TestFlow
-            (Deferred: suggest-assertions / suggest-outline, skills 3/5 — see P13. No GET /api/flows;
+            (Deferred: suggest-assertions / suggest-outline, skills 3/5 — see §3. No GET /api/flows;
              the flow travels in every request body, same convention Export reuses.)
 
 Export      POST   /api/export/testcases/{preview,xlsx,xml}   { TestFlow, useLlm } → JSON / file download  [built]

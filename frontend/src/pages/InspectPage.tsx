@@ -29,6 +29,20 @@ interface StepDraft {
 
 const ACTION_TYPES: ActionType[] = ['navigate', 'click', 'type', 'assertText', 'assertVisible']
 
+// Mirrors LocatorRanker.RationaleFor (backend/WebTestToolkit.Inspector/Capture/LocatorRanker.cs)
+// — kept in sync by hand since it's short, static UI copy, not logic worth a round trip for.
+const RATIONALE_BY_KIND: Record<string, string> = {
+  id: 'A developer-authored id — the most stable thing on a page.',
+  testId: 'Explicitly added for testing, so nobody restyles it away.',
+  name: 'Survives restyling; usually part of the form contract with the server.',
+  ariaLabel: 'An accessibility attribute — semantic and rarely churns.',
+  placeholder: 'An accessibility-adjacent attribute; can change with copy edits.',
+  text: 'Readable, but the first casualty of localisation or a copy change.',
+  volatileId: 'Unique right now, but framework-generated — likely gone after the next deploy.',
+  cssPath: 'Structural: breaks whenever the markup is refactored.',
+  absoluteXPath: 'The most fragile option — breaks on almost any markup change. Always available as a last resort.',
+}
+
 function draftFrom(event: InspectorEvent): StepDraft {
   return { label: event.suggestedLabel, locatorKey: event.locatorKey, actionType: event.actionType }
 }
@@ -53,6 +67,7 @@ export function InspectPage() {
   const [savingSequence, setSavingSequence] = useState<number | null>(null)
   const [suggestingSequence, setSuggestingSequence] = useState<number | null>(null)
   const [suggestNotes, setSuggestNotes] = useState<Record<number, string>>({})
+  const [expandedLocator, setExpandedLocator] = useState<Record<number, boolean>>({})
 
   const [llmAvailable, setLlmAvailable] = useState(false)
   const feedCleanup = useRef<(() => Promise<void>) | null>(null)
@@ -355,11 +370,42 @@ export function InspectPage() {
                         style={{ width: '100%' }}
                       />
                     </td>
-                    <td style={{ padding: '4px 8px', fontSize: '0.85em' }}>
+                    <td style={{ padding: '4px 8px', fontSize: '0.85em', maxWidth: 260 }}>
                       {step.element?.bestLocator ? (
-                        <span style={{ color: step.locatorScore < 60 ? '#bc4c00' : 'inherit' }}>
-                          {step.element.bestLocator.strategy}={step.element.bestLocator.value} ({step.locatorScore})
-                        </span>
+                        <>
+                          <span style={{ color: step.locatorScore < 60 ? '#bc4c00' : 'inherit' }}>
+                            {step.element.bestLocator.strategy}={step.element.bestLocator.value} ({step.locatorScore})
+                          </span>
+                          {step.element.candidates.length > 1 && (
+                            <>
+                              {' '}
+                              <button
+                                onClick={() =>
+                                  setExpandedLocator((prev) => ({ ...prev, [step.sequence]: !prev[step.sequence] }))
+                                }
+                                style={{ fontSize: '0.9em', padding: '0 4px' }}
+                              >
+                                {expandedLocator[step.sequence]
+                                  ? '▴ hide'
+                                  : `▾ ${step.element.candidates.length - 1} more`}
+                              </button>
+                              {expandedLocator[step.sequence] && (
+                                <ul style={{ margin: '4px 0 0', paddingLeft: '1.1em', listStyle: 'disc' }}>
+                                  {step.element.candidates.map((c, i) => (
+                                    <li key={i} style={{ marginBottom: '2px' }}>
+                                      <span>
+                                        {c.strategy}={c.value} ({c.score})
+                                      </span>
+                                      <div style={{ opacity: 0.7 }}>
+                                        {(c.kind && RATIONALE_BY_KIND[c.kind]) || 'No rationale available for this candidate.'}
+                                      </div>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </>
+                          )}
+                        </>
                       ) : (
                         <span style={{ opacity: 0.6 }}>—</span>
                       )}

@@ -112,7 +112,10 @@ public class HybridTestCodeGenerator
             progress?.Report("Checking the generated code…");
             var issues = StaticValidator.Validate(previousResponse, existingBindings).ToList();
 
-            if (issues.Count == 0)
+            // Advisory issues (a style nit like a duplicated interaction block) ride along
+            // for the UI but must never gate the build or burn a repair attempt arguing with
+            // the model over something that isn't actually broken.
+            if (!HasBlockingIssues(issues))
             {
                 progress?.Report($"Compiling (attempt {attemptNumber})…");
                 var build = await _sandbox.TryBuildAsync(candidate, PathsToClear(flow, previousResponse), ct);
@@ -121,7 +124,7 @@ public class HybridTestCodeGenerator
             }
 
             stopwatch.Stop();
-            var succeeded = issues.Count == 0;
+            var succeeded = !HasBlockingIssues(issues);
 
             attempts.Add(new GenerationAttempt(
                 attemptNumber,
@@ -261,4 +264,7 @@ public class HybridTestCodeGenerator
 
         return paths.ToList();
     }
+
+    private static bool HasBlockingIssues(IReadOnlyList<ValidationIssue> issues) =>
+        issues.Any(i => i.Severity == IssueSeverity.Blocking);
 }

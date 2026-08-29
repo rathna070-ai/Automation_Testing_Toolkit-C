@@ -15,6 +15,9 @@ export interface LocatorCandidate {
   strategy: 'id' | 'css' | 'xpath' | 'name'
   value: string
   score: number
+  // The reason this candidate was proposed (e.g. "id", "testId", "cssPath") — not itself a
+  // resolvable strategy, just a key into RATIONALE_BY_KIND below.
+  kind?: string
 }
 
 // Only tagName and candidates are ever actually required (matching CapturedElement.cs: every

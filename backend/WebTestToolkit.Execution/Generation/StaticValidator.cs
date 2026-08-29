@@ -26,6 +26,12 @@ public static partial class StaticValidator
     [GeneratedRegex(@"LocatorRepository\s*\.\s*Load\(\s*""([^""]+)""\s*\)", RegexOptions.Compiled)]
     private static partial Regex LocatorLoadRegex();
 
+    [GeneratedRegex(@"public\s+class\s+(\w+)", RegexOptions.Compiled)]
+    private static partial Regex ClassNameRegex();
+
+    [GeneratedRegex(@"public\s+(?:async\s+)?[\w<>\[\],\.]+\s+(\w+)\s*\([^)]*\)\s*(?=\{|=>)", RegexOptions.Compiled)]
+    private static partial Regex MethodSignatureRegex();
+
     private static readonly (string Pattern, string Code, string Message)[] ForbiddenPatterns =
     [
         (@"\bnew\s+ChromeDriver\b", "WTT101", "Generated code must not create a WebDriver; DriverContext already owns the browser session."),
@@ -50,6 +56,8 @@ public static partial class StaticValidator
         ValidateGherkin(fileSet, issues);
         ValidateStepCoverage(fileSet, existingBindings, issues);
         ValidateThenStepsAssert(fileSet, issues);
+        ValidateGivenWhenStepsAct(fileSet, issues);
+        ValidateDuplicatedInteractionBlocks(fileSet, issues);
 
         return issues;
     }
@@ -213,6 +221,20 @@ public static partial class StaticValidator
                 if (bindings.Any(b => BindingMatches(b, keyword, text)))
                     continue;
 
+                // A step that matches only once case is ignored is a different, more
+                // actionable problem than a genuinely missing binding: the wording is
+                // right, only the casing is off, and Reqnroll's step matching is
+                // case-sensitive — so this fails at runtime despite looking correct.
+                // Repair feedback that names the exact casing difference fixes it in one
+                // turn instead of the model guessing whether to write a new step.
+                var caseInsensitiveMatch = bindings.FirstOrDefault(b => BindingMatches(b, keyword, text, ignoreCase: true));
+                if (caseInsensitiveMatch is not null)
+                {
+                    issues.Add(new ValidationIssue(IssueSource.Static, "WTT150", feature.Path, lineNumber,
+                        $"Step '{keyword} {text}' matches [{caseInsensitiveMatch.Keyword}(@\"{caseInsensitiveMatch.Pattern}\")] in {caseInsensitiveMatch.SourceFile} only when case is ignored. Reqnroll's step matching is case-sensitive, so this fails at runtime despite looking correct — fix the casing so it matches exactly."));
+                    continue;
+                }
+
                 issues.Add(new ValidationIssue(IssueSource.Static, "WTT150", feature.Path, lineNumber,
                     $"Step '{keyword} {text}' has no matching step definition. The binding attribute text must match the wording in the feature file exactly."));
             }
@@ -272,7 +294,7 @@ public static partial class StaticValidator
         }
     }
 
-    private static bool BindingMatches(BindingPattern binding, string keyword, string stepText)
+    private static bool BindingMatches(BindingPattern binding, string keyword, string stepText, bool ignoreCase = false)
     {
         // StepDefinition binds to any keyword.
         if (binding.Keyword != "StepDefinition" && binding.Keyword != keyword)
@@ -287,7 +309,7 @@ public static partial class StaticValidator
             var pattern = binding.Pattern;
             if (!pattern.StartsWith('^')) pattern = "^" + pattern;
             if (!pattern.EndsWith('$')) pattern += "$";
-            return Regex.IsMatch(probeText, pattern);
+            return Regex.IsMatch(probeText, pattern, ignoreCase ? RegexOptions.IgnoreCase : RegexOptions.None);
         }
         catch (ArgumentException)
         {
@@ -321,6 +343,88 @@ public static partial class StaticValidator
                         LineOf(file.Content, attribute.Index),
                         "This Then step performs no verification. An empty or non-asserting Then step passes silently and reports success without checking anything — it must call Assert or throw."));
                 }
+            }
+        }
+    }
+
+    // Mirrors ValidateThenStepsAssert: a no-op Given/When body compiles and passes silently,
+    // and a later Then step ends up checking whatever page state was already there instead
+    // of the state the action was supposed to produce — just as dangerous as an unverified
+    // Then, and just as invisible to the compiler.
+    private static void ValidateGivenWhenStepsAct(GeneratedFileSet fileSet, List<ValidationIssue> issues)
+    {
+        foreach (var file in fileSet.Files.Where(f => f.Path.Replace('\\', '/').StartsWith("Steps/", StringComparison.OrdinalIgnoreCase)))
+        {
+            foreach (Match attribute in Regex.Matches(file.Content, """\[(Given|When)\(@?"(?:[^"]|"")*"\)\]"""))
+            {
+                var body = ExtractMethodBody(file.Content, attribute.Index + attribute.Length);
+                if (body is null)
+                    continue;
+
+                var stripped = Regex.Replace(body, @"//.*?$|/\*.*?\*/", "", RegexOptions.Multiline | RegexOptions.Singleline).Trim();
+
+                if (stripped.Length == 0)
+                {
+                    var keyword = attribute.Groups[1].Value;
+                    issues.Add(new ValidationIssue(IssueSource.Static, "WTT152", file.Path,
+                        LineOf(file.Content, attribute.Index),
+                        $"This {keyword} step body is empty. A no-op action step passes silently and a later Then step ends up checking the wrong page state — it must call a page object method."));
+                }
+            }
+        }
+    }
+
+    // A maintainability smell, not a correctness bug: two page-object methods that repeat
+    // the same multi-statement wait-then-interact shape, differing only in which locator key
+    // they resolve, are a copy-paste that should have been a shared private helper. Advisory
+    // severity — this must never burn a repair attempt arguing with the model over something
+    // that isn't actually broken.
+    private static void ValidateDuplicatedInteractionBlocks(GeneratedFileSet fileSet, List<ValidationIssue> issues)
+    {
+        foreach (var file in fileSet.Files.Where(f => f.Path.Replace('\\', '/').StartsWith("PageObjects/", StringComparison.OrdinalIgnoreCase)))
+        {
+            var classMatch = ClassNameRegex().Match(file.Content);
+            var className = classMatch.Success ? classMatch.Groups[1].Value : null;
+
+            var groups = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+
+            foreach (Match signature in MethodSignatureRegex().Matches(file.Content))
+            {
+                var methodName = signature.Groups[1].Value;
+                if (methodName == className) // the constructor matches the same shape as a method
+                    continue;
+
+                var body = ExtractMethodBody(file.Content, signature.Index + signature.Length);
+                if (body is null)
+                    continue;
+
+                var stripped = Regex.Replace(body, @"//.*?$|/\*.*?\*/", "", RegexOptions.Multiline | RegexOptions.Singleline);
+
+                // Only a multi-statement body is the shape worth flagging — a duplicated
+                // one-liner isn't the maintainability problem this check exists for.
+                if (Regex.Matches(stripped, ";").Count < 2)
+                    continue;
+
+                // Normalize away the one thing expected to differ (the locator key string
+                // literal) so structurally identical bodies compare equal.
+                var normalized = Regex.Replace(stripped, "\"[^\"]*\"", "\"_\"");
+                normalized = Regex.Replace(normalized, @"\s+", " ").Trim();
+                if (normalized.Length == 0)
+                    continue;
+
+                if (!groups.TryGetValue(normalized, out var names))
+                    groups[normalized] = names = new List<string>();
+                names.Add(methodName);
+            }
+
+            foreach (var names in groups.Values)
+            {
+                if (names.Count < 2)
+                    continue;
+
+                issues.Add(new ValidationIssue(IssueSource.Static, "WTT160", file.Path, null,
+                    $"{string.Join(", ", names)} share the same wait-then-interact shape, differing only by locator key. Consider a shared private helper instead of repeating the block.",
+                    IssueSeverity.Advisory));
             }
         }
     }

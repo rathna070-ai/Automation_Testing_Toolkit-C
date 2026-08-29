@@ -21,6 +21,14 @@ public class CapturedElement
     public string? OuterHtmlSnippet { get; set; }
     public string? AncestorContext { get; set; }
 
+    // Real element state the LLM would otherwise have to guess from the HTML snippet:
+    // a <select>'s real option list, a checkbox/radio's current state, whether a field is
+    // required, and its max length. Null when the concept doesn't apply to this element.
+    public bool? Checked { get; set; }
+    public bool? Required { get; set; }
+    public int? MaxLength { get; set; }
+    public List<SelectOption>? Options { get; set; }
+
     public bool HasLocator => Candidates.Count > 0;
 
     // Null when nothing was captured for this element. Callers that write locator JSON
@@ -29,3 +37,6 @@ public class CapturedElement
         .OrderByDescending(c => c.Score)
         .FirstOrDefault();
 }
+
+// One option in a captured <select>'s real, live option list.
+public record SelectOption(string Value, string Text, bool Selected);

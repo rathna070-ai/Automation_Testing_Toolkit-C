@@ -1,3 +1,4 @@
+using WebTestToolkit.Contracts.Models;
 using WebTestToolkit.Inspector.Capture;
 
 namespace WebTestToolkit.Inspector.Tests;
@@ -125,6 +126,74 @@ public class LocatorRankerTests
             Assert.That(element.AssociatedLabelText, Is.EqualTo("Log in"));
             Assert.That(element.AncestorContext, Is.EqualTo("form#login \"Login Page\""));
         });
+    }
+
+    // Without this, the model only has the raw outerHTML snippet to infer a <select>'s real
+    // options or a checkbox's state from — real element state removes the guessing.
+    [Test]
+    public void ToCapturedElement_CarriesRealElementStateThrough()
+    {
+        var element = LocatorRanker.ToCapturedElement(new RawCapture
+        {
+            Kind = "input",
+            TagName = "select",
+            Id = "country",
+            Checked = null,
+            Required = true,
+            MaxLength = null,
+            Options =
+            [
+                new RawSelectOption { Value = "us", Text = "United States", Selected = true },
+                new RawSelectOption { Value = "ca", Text = "Canada", Selected = false }
+            ],
+            Candidates = { Candidate("id", "country", "id") }
+        });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(element.Required, Is.True);
+            Assert.That(element.Checked, Is.Null);
+            Assert.That(element.Options, Has.Count.EqualTo(2));
+            Assert.That(element.Options![0], Is.EqualTo(new SelectOption("us", "United States", true)));
+            Assert.That(element.Options![1], Is.EqualTo(new SelectOption("ca", "Canada", false)));
+        });
+    }
+
+    [Test]
+    public void ToCapturedElement_ChecksAndMaxLengthCarryThrough()
+    {
+        var element = LocatorRanker.ToCapturedElement(new RawCapture
+        {
+            Kind = "click",
+            TagName = "input",
+            Type = "checkbox",
+            Id = "agree",
+            Checked = true,
+            Required = false,
+            MaxLength = null,
+            Candidates = { Candidate("id", "agree", "id") }
+        });
+
+        Assert.That(element.Checked, Is.True);
+        Assert.That(element.Required, Is.False);
+        Assert.That(element.Options, Is.Null);
+    }
+
+    [Test]
+    public void ToCapturedElement_WithNoElementState_LeavesFieldsNull()
+    {
+        var element = LocatorRanker.ToCapturedElement(new RawCapture
+        {
+            Kind = "click",
+            TagName = "button",
+            Id = "submit",
+            Candidates = { Candidate("id", "submit", "id") }
+        });
+
+        Assert.That(element.Checked, Is.Null);
+        Assert.That(element.Required, Is.Null);
+        Assert.That(element.MaxLength, Is.Null);
+        Assert.That(element.Options, Is.Null);
     }
 
     // An element with no usable locator would produce a page object method that can never

@@ -78,6 +78,10 @@ export interface ValidationIssue {
   file: string | null
   line: number | null
   message: string
+  // Blocking gates the build/repair loop; Advisory (a style nit, e.g. a duplicated
+  // interaction block) rides along for display only. Optional because older cached
+  // responses predate this field — treat missing as Blocking, the original behavior.
+  severity?: 'blocking' | 'advisory'
 }
 
 export interface GenerationAttempt {

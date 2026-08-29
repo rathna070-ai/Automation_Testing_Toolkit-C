@@ -44,6 +44,23 @@ public static class LocatorRanker
         _ => 5
     };
 
+    // Same reasoning ScoreFor's switch is built on, exposed as data so the Inspect UI can
+    // show *why* a candidate ranks where it does — useful when the best score is low and a
+    // manual override is genuinely a judgment call, not a guess.
+    public static string RationaleFor(string kind) => kind switch
+    {
+        "id" => "A developer-authored id — the most stable thing on a page.",
+        "testId" => "Explicitly added for testing, so nobody restyles it away.",
+        "name" => "Survives restyling; usually part of the form contract with the server.",
+        "ariaLabel" => "An accessibility attribute — semantic and rarely churns.",
+        "placeholder" => "An accessibility-adjacent attribute; can change with copy edits.",
+        "text" => "Readable, but the first casualty of localisation or a copy change.",
+        "volatileId" => "Unique right now, but framework-generated — likely gone after the next deploy.",
+        "cssPath" => "Structural: breaks whenever the markup is refactored.",
+        "absoluteXPath" => "The most fragile option — breaks on almost any markup change. Always available as a last resort.",
+        _ => "Unrecognized candidate kind."
+    };
+
     public static List<LocatorCandidate> Rank(IEnumerable<RawCandidate> raw)
     {
         var seen = new HashSet<(string, string)>();
@@ -60,7 +77,7 @@ public static class LocatorRanker
             if (!seen.Add((candidate.Strategy, candidate.Value)))
                 continue;
 
-            ranked.Add(new LocatorCandidate(candidate.Strategy, candidate.Value, ScoreFor(candidate.Kind)));
+            ranked.Add(new LocatorCandidate(candidate.Strategy, candidate.Value, ScoreFor(candidate.Kind), candidate.Kind));
         }
 
         return ranked
@@ -82,6 +99,10 @@ public static class LocatorRanker
         AssociatedLabelText = capture.LabelText,
         CssClasses = capture.CssClasses,
         OuterHtmlSnippet = capture.Html,
-        AncestorContext = capture.Ancestors
+        AncestorContext = capture.Ancestors,
+        Checked = capture.Checked,
+        Required = capture.Required,
+        MaxLength = capture.MaxLength,
+        Options = capture.Options?.Select(o => new SelectOption(o.Value, o.Text, o.Selected)).ToList()
     };
 }
