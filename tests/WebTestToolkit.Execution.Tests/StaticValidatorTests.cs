@@ -733,4 +733,91 @@ public class StaticValidatorTests
             "A hook redefined inside an otherwise-allowed path must be caught just as reliably " +
             "as one written to a disallowed path — the boundary is the rule, not the location.");
     }
+
+    // --- Feature-scoped bindings ---------------------------------------------------------
+    //
+    // Recording a second flow against a site you have already recorded once produces the same
+    // step sentences, because it is the same site. Without [Scope] those collide at runtime
+    // with "Ambiguous step definitions" — so WTT130 rejected the generation, which meant the
+    // toolkit could not produce two flows for one site at all. Two real committed flows hit
+    // exactly this. Scoped bindings are how Reqnroll resolves it, and the conflict check has
+    // to understand that or it just re-blocks the legal output.
+
+    private const string ScopedStepsTemplate = """
+        using Reqnroll;
+        namespace WebTestToolkit.GeneratedTests.Steps;
+
+        [Binding]
+        [Scope(Feature = "FEATURE_NAME")]
+        public class CLASS_NAMESteps
+        {
+            [Given(@"I am on the login page")]
+            public void GivenIAmOnTheLoginPage() { }
+        }
+        """;
+
+    private static string ScopedSteps(string feature, string className) =>
+        ScopedStepsTemplate.Replace("FEATURE_NAME", feature).Replace("CLASS_NAME", className);
+
+    [Test]
+    public void SameStepInTwoDifferentFeatureScopes_IsNotAConflict()
+    {
+        var existing = BindingIndex.Extract("Steps/AlphaSteps.cs", ScopedSteps("alpha", "Alpha"));
+
+        var issues = StaticValidator.Validate(
+            FileSet(files:
+            [
+                new GeneratedFileDto("Features/Login.feature", ValidFeature),
+                new GeneratedFileDto("PageObjects/LoginPage.cs", ValidPageObject),
+                new GeneratedFileDto("Steps/BetaSteps.cs", ScopedSteps("beta", "Beta"))
+            ]), existing);
+
+        Assert.That(issues.Any(i => i.Code == "WTT130"), Is.False,
+            "Identical sentences in different feature scopes are exactly how two flows on one site coexist.");
+    }
+
+    [Test]
+    public void SameStepInTheSameFeatureScope_IsStillAConflict()
+    {
+        var existing = BindingIndex.Extract("Steps/AlphaSteps.cs", ScopedSteps("alpha", "Alpha"));
+
+        var issues = StaticValidator.Validate(
+            FileSet(files:
+            [
+                new GeneratedFileDto("Features/Login.feature", ValidFeature),
+                new GeneratedFileDto("PageObjects/LoginPage.cs", ValidPageObject),
+                new GeneratedFileDto("Steps/AlphaAgainSteps.cs", ScopedSteps("alpha", "AlphaAgain"))
+            ]), existing);
+
+        Assert.That(issues.Any(i => i.Code == "WTT130"), Is.True,
+            "Same scope means Reqnroll still cannot choose between them.");
+    }
+
+    [Test]
+    public void UnscopedBinding_StillConflictsWithAScopedOne()
+    {
+        // An unscoped binding applies to every feature, so it necessarily overlaps a scoped
+        // one covering the same sentence — the scope cannot rescue it.
+        var unscoped = BindingIndex.Extract("Steps/GlobalSteps.cs", """
+            using Reqnroll;
+            namespace WebTestToolkit.GeneratedTests.Steps;
+
+            [Binding]
+            public class GlobalSteps
+            {
+                [Given(@"I am on the login page")]
+                public void GivenIAmOnTheLoginPage() { }
+            }
+            """);
+
+        var issues = StaticValidator.Validate(
+            FileSet(files:
+            [
+                new GeneratedFileDto("Features/Login.feature", ValidFeature),
+                new GeneratedFileDto("PageObjects/LoginPage.cs", ValidPageObject),
+                new GeneratedFileDto("Steps/BetaSteps.cs", ScopedSteps("beta", "Beta"))
+            ]), unscoped);
+
+        Assert.That(issues.Any(i => i.Code == "WTT130"), Is.True);
+    }
 }

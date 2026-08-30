@@ -198,7 +198,10 @@ public class HybridTestCodeGeneratorTests
             // A fresh cache per test by default — these tests share nothing else, and a
             // leaked hit from an earlier test would be a confusing false pass.
             cache ?? new GenerationResultCache(),
-            maxRequestTokens);
+            // No settings provider: these tests must never depend on the machine's stored Groq
+            // plan, so the allowance comes from the explicit override only.
+            groqSettings: null,
+            maxRequestTokensOverride: maxRequestTokens);
     }
 
     // WriteToProject:false throughout — these tests must never mutate tests/.

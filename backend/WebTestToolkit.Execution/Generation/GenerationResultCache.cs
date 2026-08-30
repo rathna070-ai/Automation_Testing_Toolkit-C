@@ -18,7 +18,8 @@ public class GenerationResultCache
 {
     private readonly ConcurrentDictionary<string, CodeGenerationResult> _cache = new(StringComparer.Ordinal);
 
-    public static string ComputeKey(ScriptGenerationInput bundle, GenerationOptions options)
+    public static string ComputeKey(
+        ScriptGenerationInput bundle, GenerationOptions options, int maxRequestTokens)
     {
         // Every field ReferenceBundleBuilder assembled for this call, plus the two option
         // fields that change what GenerateAsync does with an otherwise-identical bundle
@@ -27,7 +28,12 @@ public class GenerationResultCache
         var raw = string.Join('\u001f',
             bundle.FlowName, bundle.FlowJson, bundle.ProjectFile, bundle.SupportApi,
             bundle.GoldSample, bundle.ReferenceImplementation, bundle.ExistingProjectIndex,
-            bundle.UntrustedPageContent ?? "", options.UseLlm, options.MaxRepairAttempts);
+            bundle.UntrustedPageContent ?? "", options.UseLlm, options.MaxRepairAttempts,
+            // Part of the key because it decides whether the AI path runs at all. Without
+            // it, raising the allowance after upgrading the Groq plan would replay a cached
+            // "your plan is too small" fallback forever — the exact outcome that making the
+            // allowance configurable exists to prevent. Found by live test, not by the suite.
+            maxRequestTokens);
 
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(raw));
         return Convert.ToHexString(hash);

@@ -24,7 +24,7 @@
 (function () {
   'use strict';
 
-  var VERSION = 4;
+  var VERSION = 5;
   var QUEUE_KEY = '__wtt_queue';
   var MAX_QUEUE = 200;
   var MAX_HTML = 300;
@@ -333,6 +333,18 @@
     // change too would emit the same action twice.
     if (type === 'checkbox' || type === 'radio' || type === 'button' || type === 'submit') return;
     if (!/^(input|textarea|select)$/i.test(el.tagName)) return;
+
+    // A <select> is its own action, not an 'input'. Recording it as 'input' produced a
+    // Clear()+SendKeys() page-object method, and Clear() throws on a non-editable element —
+    // so every recorded flow containing a dropdown generated a test that crashed when run.
+    // The visible option text travels as the value because the generated code selects by
+    // text: it is what the Gherkin step reads as, and what a person reviewing it recognises.
+    if (/^select$/i.test(el.tagName)) {
+      var chosen = el.options && el.selectedIndex >= 0 ? el.options[el.selectedIndex] : null;
+      var text = chosen ? trim(chosen.textContent, MAX_TEXT) : '';
+      push(describe(el, 'select', text || (el.value == null ? null : String(el.value))));
+      return;
+    }
 
     push(describe(el, 'input', el.value == null ? null : String(el.value)));
   }

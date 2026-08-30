@@ -14,6 +14,6 @@ public class ApiGroqSettingsProvider : IGroqSettingsProvider
     public async Task<GroqSettings> GetAsync(CancellationToken ct = default)
     {
         var settings = await _settingsStore.GetAsync(ct);
-        return new GroqSettings(settings.GroqApiKey, settings.GroqModel);
+        return new GroqSettings(settings.GroqApiKey, settings.GroqModel, settings.GroqTokensPerMinute);
     }
 }

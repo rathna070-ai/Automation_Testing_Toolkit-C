@@ -22,7 +22,7 @@ public sealed class InspectorSession : IDisposable
     // Must match `var VERSION` in Overlay/inspector-overlay.js. OverlayVersionMatchesScript
     // in the test project asserts that, because a silent mismatch would mean re-injecting
     // the overlay on every single poll — capture would still work, just very slowly.
-    internal const int OverlayVersion = 4;
+    internal const int OverlayVersion = 5;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -280,6 +280,7 @@ public sealed class InspectorSession : IDisposable
         {
             "click" => ActionType.Click,
             "input" => ActionType.Type,
+            "select" => ActionType.Select,
             _ => (ActionType?)null
         };
         if (actionType is null)

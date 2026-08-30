@@ -11,11 +11,13 @@ export interface HealthResponse {
 export interface SettingsResponse {
   groqModel: string
   apiKeyConfigured: boolean
+  groqTokensPerMinute: number
 }
 
 export interface UpdateSettingsRequest {
   groqApiKey?: string | null
   groqModel?: string | null
+  groqTokensPerMinute?: number | null
 }
 
 export interface LlmStatusResponse {

@@ -27,6 +27,17 @@ public static class StepsGenerator
         sb.AppendLine("namespace WebTestToolkit.GeneratedTests.Steps;");
         sb.AppendLine();
         sb.AppendLine("[Binding]");
+
+        // Scope the bindings to this flow's own feature. Reqnroll resolves step definitions
+        // globally, so two flows recorded against the same site — which produce the same step
+        // sentences, because the site is the same — would otherwise collide at runtime with
+        // "Ambiguous step definitions". That is not an edge case: it is the guaranteed outcome
+        // of recording a second flow on a site you have already recorded once, and without
+        // this the toolkit simply cannot generate both.
+        //
+        // Must match FeatureFileGenerator's `Feature: {flow.Name}` line verbatim — the raw
+        // name, not the sanitized identifier used for the class.
+        sb.AppendLine($"[Scope(Feature = \"{Naming.EscapeForRegularString(flow.Name)}\")]");
         sb.AppendLine($"public class {className}");
         sb.AppendLine("{");
 
@@ -56,7 +67,8 @@ public static class StepsGenerator
         var pattern = Naming.EscapeForVerbatimString(plan.BindingRegexPattern);
         sb.AppendLine($"    [{plan.SectionKeyword}(@\"{pattern}\")]");
 
-        var isParameterizedType = plan.Step.ActionType == ActionType.Type && plan.Step.InputValue is not null;
+        var isParameterizedType =
+            plan.Step.ActionType is (ActionType.Type or ActionType.Select) && plan.Step.InputValue is not null;
         var parameter = isParameterizedType ? "string value" : "";
         sb.AppendLine($"    public void {plan.BindingMethodName}({parameter})");
         sb.AppendLine("    {");
@@ -68,6 +80,7 @@ public static class StepsGenerator
                 break;
 
             case ActionType.Type:
+            case ActionType.Select:
                 sb.AppendLine($"        {pageField}.{plan.PageObjectMethodName}(value);");
                 break;
 

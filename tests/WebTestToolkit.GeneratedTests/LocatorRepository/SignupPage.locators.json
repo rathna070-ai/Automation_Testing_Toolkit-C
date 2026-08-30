@@ -1,0 +1,7 @@
+{
+  "url": "",
+  "locators": {
+    "CountryDropdown": { "strategy": "id", "value": "country" },
+    "ChosenMessage": { "strategy": "id", "value": "chosen" }
+  }
+}

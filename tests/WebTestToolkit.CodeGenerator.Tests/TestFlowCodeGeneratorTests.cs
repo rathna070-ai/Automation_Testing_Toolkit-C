@@ -169,10 +169,16 @@ public class TestFlowCodeGeneratorTests
         var steps = files["Steps/FlowNew1Steps.cs"];
         Assert.That(steps, Does.Contain("public class FlowNew1Steps"));
         Assert.That(steps, Does.Contain("public FlowNew1Steps(LoginPage loginPage)"));
-        Assert.That(steps, Does.Not.Contain("flow new 1"));
+
+        // The raw name is illegal in an *identifier* but required in the [Scope] string, which
+        // has to match the feature file's title verbatim or the bindings resolve nowhere. So
+        // this checks the identifiers specifically rather than banning the raw name outright.
+        Assert.That(steps, Does.Not.Contain("class flow new 1"));
+        Assert.That(steps, Does.Not.Contain("flow new 1Steps"));
+        Assert.That(steps, Does.Contain("[Scope(Feature = \"flow new 1\")]"));
 
         // The Gherkin title is prose, not an identifier — the raw name is fine, and reads
-        // better, there.
+        // better, there. It is also what [Scope] above must agree with.
         var feature = files["Features/FlowNew1.feature"];
         Assert.That(feature, Does.Contain("Feature: flow new 1"));
     }
@@ -235,5 +241,78 @@ public class TestFlowCodeGeneratorTests
         var page = files["PageObjects/LoginPage.cs"];
         Assert.That(page, Does.Contain("FindVisible(\"ItemTotalA\")"));
         Assert.That(page, Does.Contain("FindVisible(\"ItemTotalB\")"));
+    }
+
+    // A recorded <select> used to arrive as ActionType.Type, which emits Clear()+SendKeys().
+    // Clear() on a non-editable element is "invalid element state" per the WebDriver spec, so
+    // every flow containing a dropdown generated a suite that threw the moment it ran — in the
+    // *deterministic* generator, the path that is supposed to always be safe.
+    private static TestFlow BuildDropdownFlow() => new()
+    {
+        Name = "Signup",
+        StartUrl = "https://example.com/signup",
+        Steps =
+        [
+            new TestStep
+            {
+                Order = 1, ActionType = ActionType.Navigate,
+                Label = "I am on the signup page", PageName = "SignupPage"
+            },
+            new TestStep
+            {
+                Order = 2,
+                ActionType = ActionType.Select,
+                Label = "I choose the country dropdown",
+                InputValue = "India",
+                PageName = "SignupPage",
+                LocatorKey = "CountryDropdown",
+                Element = new CapturedElement
+                {
+                    TagName = "select",
+                    Id = "country",
+                    Candidates = [new LocatorCandidate("id", "country", 100)],
+                    Options =
+                    [
+                        new SelectOption("in", "India", true),
+                        new SelectOption("uk", "United Kingdom", false)
+                    ]
+                }
+            }
+        ]
+    };
+
+    [Test]
+    public void SelectStep_UsesSelectElement_NotClearAndSendKeys()
+    {
+        var files = TestFlowCodeGenerator.Generate(BuildDropdownFlow());
+        var page = files["PageObjects/SignupPage.cs"];
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(page, Does.Contain("new SelectElement(element).SelectByText(value)"));
+            Assert.That(page, Does.Contain("public void IChooseTheCountryDropdown(string value)"));
+
+            // The specific crash this fixes: Clear() must not be emitted for a <select>.
+            Assert.That(page, Does.Not.Contain("element.Clear()"),
+                "Clear() on a <select> throws invalid-element-state at runtime.");
+            Assert.That(page, Does.Not.Contain("element.SendKeys(value)"));
+        });
+    }
+
+    [Test]
+    public void SelectStep_IsParameterizedLikeAType()
+    {
+        var files = TestFlowCodeGenerator.Generate(BuildDropdownFlow());
+
+        Assert.Multiple(() =>
+        {
+            // The chosen option binds as a capture group, so re-recording with a different
+            // option is a new Examples row rather than a whole new step definition.
+            Assert.That(files["Features/Signup.feature"],
+                Does.Contain("I choose the country dropdown \"India\""));
+            Assert.That(files["Steps/SignupSteps.cs"],
+                Does.Contain("public void WhenIChooseTheCountryDropdown(string value)"));
+            Assert.That(files["Steps/SignupSteps.cs"], Does.Contain("(value);"));
+        });
     }
 }

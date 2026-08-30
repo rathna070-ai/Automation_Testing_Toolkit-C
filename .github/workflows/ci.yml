@@ -30,11 +30,13 @@ jobs:
       - name: Build
         run: dotnet build WebTestToolkit.sln --no-restore --configuration Release
 
-      # No --filter needed: NUnit's [Explicit] attribute already excludes the 4 browser
-      # tests (InspectorSessionBrowserTests) from a plain run. They need a real Chrome
-      # profile and are meant to be run locally on demand, not in CI.
+      # NUnit's [Explicit] attribute already excludes the browser tests
+      # (InspectorSessionBrowserTests) from a plain run. The @liveSite filter is the Gherkin
+      # equivalent for generated flows recorded against a real third-party site: their result
+      # depends on that site being up, which is exactly the dependency P16 item 6 removed from
+      # the hand-written sample suite. Both are runnable locally on demand.
       - name: Test
-        run: dotnet test WebTestToolkit.sln --no-build --configuration Release --logger "console;verbosity=normal"
+        run: dotnet test WebTestToolkit.sln --no-build --configuration Release --filter "Category!=liveSite" --logger "console;verbosity=normal"
 
   frontend:
     runs-on: ubuntu-latest

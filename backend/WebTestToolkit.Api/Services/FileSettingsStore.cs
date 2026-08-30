@@ -52,7 +52,8 @@ public class FileSettingsStore : ISettingsStore
             var persisted = new PersistedSettingsFile
             {
                 GroqApiKeyProtected = string.IsNullOrEmpty(settings.GroqApiKey) ? null : Protect(settings.GroqApiKey),
-                GroqModel = settings.GroqModel
+                GroqModel = settings.GroqModel,
+                GroqTokensPerMinute = settings.GroqTokensPerMinute
             };
 
             var json = JsonSerializer.Serialize(persisted, new JsonSerializerOptions { WriteIndented = true });
@@ -81,7 +82,12 @@ public class FileSettingsStore : ISettingsStore
                 GroqApiKey = persisted.GroqApiKeyProtected is null ? null : Unprotect(persisted.GroqApiKeyProtected),
                 GroqModel = string.IsNullOrWhiteSpace(persisted.GroqModel)
                     ? new AppSettings().GroqModel
-                    : persisted.GroqModel
+                    : persisted.GroqModel,
+                // 0 means the field predates this setting (a settings file written before it
+                // existed), not a deliberate "no allowance" — fall back to the default.
+                GroqTokensPerMinute = persisted.GroqTokensPerMinute > 0
+                    ? persisted.GroqTokensPerMinute
+                    : new AppSettings().GroqTokensPerMinute
             };
         }
         catch (Exception ex) when (ex is JsonException or CryptographicException or IOException)
@@ -103,9 +109,15 @@ public class FileSettingsStore : ISettingsStore
         return Encoding.UTF8.GetString(bytes);
     }
 
+    // The on-disk shape, deliberately separate from AppSettings so the key can be stored
+    // protected rather than plain. That separation means a field added to AppSettings is
+    // silently dropped on save until it is added here too — which is exactly what happened
+    // to GroqTokensPerMinute: the PUT response echoed the new value while the next GET
+    // returned the default, because the round trip through this class lost it.
     private class PersistedSettingsFile
     {
         public string? GroqApiKeyProtected { get; set; }
         public string GroqModel { get; set; } = "";
+        public int GroqTokensPerMinute { get; set; }
     }
 }

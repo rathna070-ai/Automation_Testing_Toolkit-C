@@ -54,11 +54,45 @@ public class Hooks
         </html>
         """;
 
+    // Serves the <select> the Signup scenario drives. That scenario exists to prove a
+    // generated dropdown step actually runs: the generator used to emit Clear()+SendKeys()
+    // for a <select>, and Clear() on a non-editable element throws invalid-element-state, so
+    // every recorded flow with a dropdown produced a suite that crashed. A unit test can show
+    // the emitted *text* is right; only running it against a real browser shows it works.
+    private const string SignupPageHtml = """
+        <!doctype html>
+        <html>
+        <head><meta charset="utf-8"><title>Signup</title></head>
+        <body>
+          <form id="signup" onsubmit="return false;">
+            <select id="country" name="country">
+              <option value="">-- choose --</option>
+              <option value="in">India</option>
+              <option value="uk">United Kingdom</option>
+            </select>
+          </form>
+          <div id="chosen"></div>
+          <script>
+            document.getElementById('country').addEventListener('change', function () {
+              var sel = this;
+              document.getElementById('chosen').textContent =
+                'Selected: ' + sel.options[sel.selectedIndex].text;
+            });
+          </script>
+        </body>
+        </html>
+        """;
+
     [BeforeTestRun]
     public static void BeforeTestRun()
     {
-        _server = new TinyWebServer(new Dictionary<string, string> { ["/"] = LoginPageHtml });
+        _server = new TinyWebServer(new Dictionary<string, string>
+        {
+            ["/"] = LoginPageHtml,
+            ["/signup"] = SignupPageHtml
+        });
         PatchLoginPageUrl(_server.BaseUrl + "/");
+        PatchPageUrl("SignupPage", _server.BaseUrl + "/signup");
     }
 
     [AfterTestRun]
@@ -68,12 +102,14 @@ public class Hooks
         _server = null;
     }
 
-    private static void PatchLoginPageUrl(string url)
+    private static void PatchLoginPageUrl(string url) => PatchPageUrl("LoginPage", url);
+
+    private static void PatchPageUrl(string pageName, string url)
     {
-        var path = Path.Combine(AppContext.BaseDirectory, "LocatorRepository", "LoginPage.locators.json");
+        var path = Path.Combine(AppContext.BaseDirectory, "LocatorRepository", $"{pageName}.locators.json");
         var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
         var current = JsonSerializer.Deserialize<PageLocators>(File.ReadAllText(path), options)
-            ?? throw new InvalidOperationException("Could not parse LoginPage.locators.json to patch its fixture URL.");
+            ?? throw new InvalidOperationException($"Could not parse {pageName}.locators.json to patch its fixture URL.");
 
         var patched = current with { Url = url };
         File.WriteAllText(path, JsonSerializer.Serialize(patched, new JsonSerializerOptions

@@ -4,6 +4,7 @@ using WebTestToolkit.GeneratedTests.PageObjects;
 namespace WebTestToolkit.GeneratedTests.Steps;
 
 [Binding]
+[Scope(Feature = "nert")]
 public class NertSteps
 {
     private readonly HomePage _homePage;

@@ -52,7 +52,12 @@ public static class GherkinStepPlanner
             var occurrence = labelOccurrences[dedupeKey] = labelOccurrences.GetValueOrDefault(dedupeKey) + 1;
             var effectiveLabel = occurrence == 1 ? step.Label : $"{step.Label} ({occurrence})";
 
-            var isParameterizedType = step.ActionType == ActionType.Type && step.InputValue is not null;
+            // Select carries its chosen option the same way Type carries its typed text, so
+            // both bind with a "(.*)" capture group rather than baking the value into the
+            // step text — otherwise re-recording with a different option would need a new
+            // binding rather than a new Examples row.
+            var isParameterizedType =
+                step.ActionType is (ActionType.Type or ActionType.Select) && step.InputValue is not null;
 
             var gherkinLine = isParameterizedType
                 ? $"{effectiveLabel} \"{step.InputValue}\""

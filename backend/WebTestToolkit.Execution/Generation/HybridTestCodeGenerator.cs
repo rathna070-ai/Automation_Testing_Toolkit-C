@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using WebTestToolkit.CodeGenerator;
 using WebTestToolkit.Contracts.Models;
+using WebTestToolkit.Llm;
 using WebTestToolkit.Llm.Skills;
 
 namespace WebTestToolkit.Execution.Generation;
@@ -24,7 +25,8 @@ public class HybridTestCodeGenerator
     private readonly GeneratedProjectWriter _writer;
     private readonly ILogger<HybridTestCodeGenerator> _logger;
     private readonly GenerationResultCache _cache;
-    private readonly int _maxRequestTokens;
+    private readonly IGroqSettingsProvider? _groqSettings;
+    private readonly int? _maxRequestTokensOverride;
 
     public HybridTestCodeGenerator(
         ScriptGenerationSkill generationSkill,
@@ -34,7 +36,8 @@ public class HybridTestCodeGenerator
         GeneratedProjectWriter writer,
         ILogger<HybridTestCodeGenerator> logger,
         GenerationResultCache cache,
-        int maxRequestTokens = DefaultMaxRequestTokens)
+        IGroqSettingsProvider? groqSettings = null,
+        int? maxRequestTokensOverride = null)
     {
         _generationSkill = generationSkill;
         _repairSkill = repairSkill;
@@ -43,7 +46,23 @@ public class HybridTestCodeGenerator
         _writer = writer;
         _logger = logger;
         _cache = cache;
-        _maxRequestTokens = maxRequestTokens;
+        _groqSettings = groqSettings;
+        _maxRequestTokensOverride = maxRequestTokensOverride;
+    }
+
+    // Read per call, not captured at construction, for the same reason GroqSettings itself is:
+    // raising the allowance after upgrading the Groq plan should take effect on the next
+    // generation, not on the next API restart.
+    private async Task<int> ResolveMaxRequestTokensAsync(CancellationToken ct)
+    {
+        if (_maxRequestTokensOverride is { } forced)
+            return forced;
+
+        if (_groqSettings is null)
+            return DefaultMaxRequestTokens;
+
+        var settings = await _groqSettings.GetAsync(ct);
+        return settings.TokensPerMinute > 0 ? settings.TokensPerMinute : DefaultMaxRequestTokens;
     }
 
     public async Task<CodeGenerationResult> GenerateAsync(
@@ -74,7 +93,10 @@ public class HybridTestCodeGenerator
         // would silently do nothing on a repeat click despite the user asking for exactly
         // that. Preview-twice-unchanged is also the case this exists for in the first place:
         // reviewing a result, tweaking nothing, and re-running it just to see it again.
-        var cacheKey = options.WriteToProject ? null : GenerationResultCache.ComputeKey(bundle, options);
+        var maxRequestTokens = await ResolveMaxRequestTokensAsync(ct);
+        var cacheKey = options.WriteToProject
+            ? null
+            : GenerationResultCache.ComputeKey(bundle, options, maxRequestTokens);
         if (cacheKey is not null && _cache.TryGet(cacheKey, out var cached))
         {
             progress?.Report("Using the cached result for this exact flow — nothing changed since the last run.");
@@ -96,18 +118,19 @@ public class HybridTestCodeGenerator
         // succeed — retrying or waiting does not help — so skip locally rather than spend a
         // round trip on a guaranteed 413.
         var estimatedRequestTokens = EstimatePromptTokens(bundle) + ScriptGenerationSkill.CompletionTokenBudget;
-        if (estimatedRequestTokens > _maxRequestTokens)
+        if (estimatedRequestTokens > maxRequestTokens)
         {
             var skipReason =
                 $"This flow needs about {estimatedRequestTokens} tokens per AI request (prompt plus the " +
                 $"{ScriptGenerationSkill.CompletionTokenBudget}-token response reservation), over the Groq plan's " +
-                $"{_maxRequestTokens}-tokens-per-minute allowance — capture a shorter flow or upgrade the Groq tier to use AI here. " +
+                $"{maxRequestTokens}-tokens-per-minute allowance — capture a shorter flow, or raise it in Settings after " +
+                "upgrading the Groq plan. " +
                 "Used the deterministic generator instead.";
 
             progress?.Report(skipReason);
             _logger.LogInformation(
                 "Skipping AI generation for '{Flow}': estimated request size {Estimated} exceeds the {Limit}-token-per-minute allowance",
-                flow.Name, estimatedRequestTokens, _maxRequestTokens);
+                flow.Name, estimatedRequestTokens, maxRequestTokens);
 
             var skipResult = await FinishWithDeterministicAsync(
                 flow, deterministicSet, attempts, GenerationSource.DeterministicFallback,

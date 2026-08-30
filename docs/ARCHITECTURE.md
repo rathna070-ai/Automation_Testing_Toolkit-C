@@ -91,9 +91,10 @@ project references to the toolkit at all, by design, so it stays runnable standa
 | **P12** | Auto-heal — a locator picker (`GET /api/locators`, reading every `*.locators.json`) plus a single-capture re-inspect session that's an ordinary P7 `InspectorSession` under the hood (`/autoheal/start` opens Chrome at the broken locator's own page); the only new write is `LocatorJsonPatcher`, which rewrites exactly one key in one locator file, atomically, and never touches a `.cs` file | `Execution/Generation/LocatorJsonPatcher.cs`, `Api/Controllers/AutoHealController.cs`, `frontend/src/pages/AutoHealPage.tsx` |
 | **P13** | Five techniques adopted from a sibling project (see the grounding note below): `WTT152` rejects a no-op `Given`/`When` body the same way `WTT151` already rejects a no-op `Then`; `WTT150` now distinguishes a case-only mismatch ("matches only when case is ignored") from a genuinely missing binding; `IssueSeverity {Blocking, Advisory}` on `ValidationIssue`, with a new `WTT160` structural duplicated-interaction-block check emitted as `Advisory` so a style nit can never gate the build or burn a repair attempt; the Inspect overlay now captures real element state (`<select>` options, checkbox/radio `checked`, `required`, `maxLength`) instead of leaving the model to guess from an HTML snippet (overlay version bumped 3→4); and `InspectPage` shows every ranked locator alternative with a rationale, not just the best one | `Execution/Generation/StaticValidator.cs`, `Contracts/Models/GenerationModels.cs`, `Inspector/Overlay/inspector-overlay.js`, `Inspector/Capture/{RawCapture,LocatorRanker}.cs`, `frontend/src/pages/InspectPage.tsx` |
 | **P16** | Risk mitigation, all six items — adversarial-DOM injection tests proving `StaticValidator` (not prompt fencing) is the real trust boundary; `DriverContext` wraps `ChromeDriver` creation in an actionable error; the hand-written sample suite now runs against a local `TinyWebServer` fixture instead of `the-internet.herokuapp.com`; `GenerationResultCache` serves a repeated *unchanged* Preview from an in-memory cache (scoped to `WriteToProject:false` only — a cache hit must never silently skip writing a real Generate click) with a `Cached` flag surfaced through to the UI; a Windows Job Object (`ChromeProcessJob`/`ChildProcessFinder`, P/Invoke) kills every chromedriver/Chrome process the instant the API process dies, graceful or not — live-verified by force-killing the API mid-session and confirming both processes vanished while unrelated Chrome windows survived; Auto-heal's UI states its structural-change limit | `Execution/Generation/GenerationResultCache.cs`, `Inspector/{ChromeProcessJob,ChildProcessFinder}.cs`, `tests/WebTestToolkit.GeneratedTests/Support/{DriverContext,Hooks,TinyWebServer}.cs`, `frontend/src/pages/AutoHealPage.tsx` |
+| **P19a** | The three highest-impact fixes from the external review: the Groq plan's tokens-per-minute allowance is a **setting** (`AppSettings.GroqTokensPerMinute`, read per call) rather than a constant, so upgrading the plan takes effect without a rebuild; a recorded `<select>` now generates `SelectElement.SelectByText` instead of `Clear()+SendKeys()`, which threw `InvalidElementStateException` on every flow containing a dropdown; and generated binding classes carry `[Scope(Feature = "...")]`, so two flows recorded against the same site no longer collide as ambiguous step definitions — previously a hard block on generating a second flow per site. Two bugs surfaced only by live testing: the generation cache keyed without the allowance (so raising it replayed a stale "plan too small" result) and `PersistedSettingsFile` silently dropped the new field on save | `Contracts/Models/{AppSettings,ActionType}.cs`, `CodeGenerator/{PageObjectGenerator,StepsGenerator,GherkinStepPlanner}.cs`, `Execution/Generation/{HybridTestCodeGenerator,BindingIndex,GenerationResultCache}.cs`, `Inspector/Overlay/inspector-overlay.js`, `Api/Services/FileSettingsStore.cs` |
 | **P17** | Export generated script files — `POST /api/export/generated-files/zip` zips whichever file set (`files`/`deterministicFiles`) the frontend already holds in memory, one entry per `GeneratedFile.RelativePath`, no regeneration triggered. Caught live during verification: the first version emitted a UTF-8 BOM per entry (`Encoding.UTF8`'s default preamble) that `File.WriteAllText` — what a real Generate actually writes with — never emits; fixed to an explicit no-BOM encoding and pinned with a dedicated regression test | `Export/GeneratedFilesZipWriter.cs`, `Api/Controllers/ExportController.cs`, `frontend/src/api/client.ts`, `frontend/src/pages/FlowsPage.tsx` |
 
-**Verified:** 187/187 backend tests (plus 5/5 opt-in `[Category("Browser")]` real-Chrome tests —
+**Verified:** 196/196 backend tests (plus 5/5 opt-in `[Category("Browser")]` real-Chrome tests —
 `dotnet test --filter "Category=Browser"`, which now also live-proves P16 item 3's crash cleanup
 doesn't break normal session start), `dotnet build` clean (Debug + Release, 15 projects), frontend
 `tsc`/`vite build`/`oxlint` clean. `tests/WebTestToolkit.GeneratedTests` (the hand-written sample
@@ -161,6 +162,9 @@ issues" button (P5's repair loop already automates that). The five genuinely new
 | Phase | Adds | Acceptance |
 |---|---|---|
 | **P18** | Generation reliability — closes the three causes behind the observed high generation-failure rate | A normal-sized flow reaches the model again, and the deterministic path is validated, not just compiled |
+| **P19** | Flow persistence and regeneration — a recorded `TestFlow` survives the session, the process, and the tab | Record a flow, restart the API, reload and regenerate it without re-recording |
+| **P20** | Parallel-safe generated suite (+ green CI) | `reqnroll.json` enables scenario-level parallelism without shared-state corruption, and `dotnet test` on the solution is green again |
+| **P21** | Assertion quality — the generated tests actually pin behaviour down, not just the absence of an obvious failure | `WTT151` rejects a tautological assertion, and a scheduled Stryker.NET run scores the rule layer |
 
 P16 and P17 are implemented — see the table above. §6 below still narrates them in the risk ledger's
 own voice (what was open, what closed it), and this section keeps both subsections as the permanent
@@ -353,6 +357,80 @@ remaining lever that widens the AI path on this tier.
 Build order: 1 first and alone — it is a correctness gap in the safety net and independent of the
 other two.
 
+#### P19–P21 — from an external review of the approach
+
+P16/P17 were driven by this project's own risk ledger; P19–P21 come from checking the design against
+current (2026) industry practice and then verifying each claim against this codebase rather than
+accepting it generically. Two findings are worth recording because they *validate* choices that have
+been questioned here before:
+
+- **The hard build-gate is right.** The recurring industry finding is that the riskiest AI-testing
+  failure is a weak-or-wrong assertion that *passes*, and that LLM output needs a
+  generate-then-commit flow — compile and review, never trust. `StaticValidator` + `BuildSandbox` is
+  exactly that. It is also why the sibling extension's "never errors" (§P18's preamble) is an
+  absence of verification, not better output.
+- **Manual, review-before-apply auto-heal beats the market norm.** The standard criticism of
+  self-healing is that it silently masks real regressions and destroys auditability. P12's design —
+  propose a locator, show it, require a click, write only JSON — avoids both by construction.
+
+And one that reframes the tool's position: Playwright's own `codegen` is widely criticised for
+producing noisy, assertion-free recordings that **rot**, because a recording cannot be regenerated
+when the UI changes. Regenerating from a stored `TestFlow` is precisely this project's edge — except
+that today it can't, which is P19.
+
+**A no-code prerequisite, worth doing before any of these:** Groq's free tier caps `gpt-oss-120b` at
+8,000 TPM (the number `DefaultMaxRequestTokens` encodes, and the reason §P18's preamble concludes the
+AI path is unreachable). Groq's **Developer tier is a free upgrade** — card on file, pay-per-token —
+at roughly 250,000–300,000 TPM, ~30× more. At $0.15/M input and $0.60/M output, a 15-step flow's
+~17K tokens costs about **half a cent**. No amount of bundle-shrinking (P18 item 3) achieves on 8K
+TPM what this achieves immediately.
+
+**P19 — flow persistence and regeneration.** A recorded flow is never saved anywhere:
+`GET /api/inspect/{id}/flow` reads the *live in-memory session*, `InspectorSessionManager` evicts
+completed sessions after `CompletedRetention` (2 hours), and the frontend holds the flow only in
+React router state. So a recording has a ~2-hour life, dies with a closed tab or an API restart, and
+can never be re-generated against a changed UI. New `FlowStore` modelled directly on
+`FileSettingsStore` (same `%AppData%\WebTestToolkit\` root, same `SemaphoreSlim` +
+write-temp-then-move discipline, one JSON file per flow) — no database; this is a local single-user
+tool and that precedent already exists. Save on session *stop*, not on generate, so the flow outlives
+the eviction window. Adds `GET /api/flows`, `GET|DELETE /api/flows/{name}`, and a saved-flow list on
+`FlowsPage.tsx` replacing today's `location.state` handoff. Regeneration then costs nothing —
+`HybridTestCodeGenerator` already takes a `TestFlow` and never assumes it came from a live session.
+`Api/Services/FlowStore.cs` (new), `Api/Controllers/{Flows,Inspect}Controller.cs`,
+`frontend/src/pages/FlowsPage.tsx`. Note `ExportDtos.cs`'s "nothing in this toolkit persists flows by
+name yet" comment goes stale with this and must be revised.
+
+**P20 — parallel-safe generated suite, and green CI.** Two problems in the same project.
+`LocatorRepository.Cache` is a plain `static Dictionary<string, PageLocators>` mutated by `Load()`
+with no lock, and `PageLocators` hands every caller the same mutable inner dictionary — latent today
+only because nothing is parallelised, and the first thing that would break if anything were. Fix to
+`ConcurrentDictionary` + a read-only view, then add `reqnroll.json` enabling scenario-level
+parallelism; `DriverContext`'s constructor injection already avoids the `ScenarioContext.Current`
+statics Reqnroll *throws* on under parallel execution, so the design holds. Same phase closes the red
+CI: `.github/workflows/ci.yml` runs `dotnet test WebTestToolkit.sln`, which includes
+`GeneratedTests`, where the committed `Nert`/`Nrert1` flows fail on ambiguous bindings (they share
+six step patterns) and carry no `[Explicit]`. Regenerating them is the preferred fix over marking
+them explicit — P18 item 1's validation now catches exactly this at generation time, so a regenerate
+also proves that check works on a real case.
+
+**P21 — assertion quality.** `WTT151` is a substring test —
+`Contains("Assert") || Contains("throw") || Contains(".Should(")` — so `Assert.That(true)` passes it,
+and the deterministic generator's own `AssertVisible` emits `Assert.That(page.X(), Is.True)` over a
+`.Displayed` call, which is close to the "pins down the absence of obvious failure" antipattern the
+research names as the #1 AI test defect. The gate is shallower than its rule list implies. Deepen it
+to reject tautological assertions and to require an `AssertText` step's expected value to actually
+appear in the assertion, reusing `ExtractMethodBody`'s existing brace-matching rather than adding a
+parser; strengthen the emitted `AssertVisible`; and add **Stryker.NET** as a *scheduled* (not
+per-PR) CI job scoped to `CodeGenerator` and `Execution/Generation` — the layers where the rules
+actually live — since a surviving mutant in `StaticValidator` means a rule nothing tests. This also
+finally covers **skill 3 (assertion inference)**, deferred since P9.
+
+**Explicitly not planned: a Playwright migration.** Auto-waiting and the Trace Viewer are real
+advantages, and Playwright has overtaken Selenium on adoption. But every gap above is
+engine-independent, and a migration would rewrite the generator, the validator and the gold sample
+at once while fixing none of them. Revisit only if flakiness in the *generated* suites — not the
+toolkit's own tests — becomes the dominant complaint.
+
 ### Effort and model estimates
 
 Actuals for P3–P13: roughly 6 hrs for P1–P3; P4, P6, P8, P9, P10, P11, P12 each finished within a
@@ -391,6 +469,9 @@ above — leaving only the not-yet-built work below.
 | Phase | Effort (hrs) | Model |
 |---|---|---|
 | **P18** — items 2/3 | 2–4 | Sonnet 5 (item 2 crosses contract + generators + capture; item 3 is a prompt-shape change with a measurable size target) |
+| **P19** — flow persistence | 3–5 | Sonnet 5 (new store + 3 endpoints + a UI list, but `FileSettingsStore` is a close template to copy) |
+| **P20** — parallel-safe suite + green CI | 2–4 | Sonnet 5 (the `ConcurrentDictionary` fix is trivial; proving parallelism actually holds against a real browser is the work) |
+| **P21** — assertion quality | 3–5 | Sonnet 5 (deepening `WTT151` is real analysis, not a substring swap; Stryker wiring is mechanical but its first run needs interpreting) |
 | **Deferred from P9/P10** — skills 3 & 5, `[AfterStep]` screenshots, screenshot preview | 10–14 | Sonnet 5 |
 
 ---
@@ -569,6 +650,10 @@ ledger). The actionable gaps are packaged as **P16** in §2's roadmap.
    completion reservation plus `ReferenceBundleBuilder`'s ~4,000-token fixed floor exhausts the 8,000
    budget before any captured step is added, so the AI path is unreachable there and every generation
    is deterministic — shrinking the bundle (**P18 item 3**) or upgrading the plan are the only levers.
+   **Of those two, upgrading is by far the better one and is effectively free**: Groq's Developer
+   tier is a no-cost upgrade (card on file, pay-per-token) at ~250,000–300,000 TPM, ~30× the free
+   tier's 8,000, and at $0.15/M input + $0.60/M output a 15-step flow's ~17K tokens costs about half
+   a cent. Recommended before building P18 item 3, which cannot reach the same result on 8K TPM.
    The *redundant*-call case (clicking Preview twice on an unchanged flow) is separately open →
    **P16 item 4**.
 7. **Auto-heal scope (P12)** — handles "same element, changed locator" only; structural page

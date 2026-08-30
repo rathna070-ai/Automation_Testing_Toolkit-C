@@ -89,6 +89,7 @@ public sealed class StepLabeler
             // test data, and the generated binding already carries it as a parameter.
             ActionType.Type when type == "password" => "I enter the password",
             ActionType.Type => $"I enter the {subject}",
+            ActionType.Select => $"I choose the {subject}",
             ActionType.Click when type is "checkbox" => $"I tick the {subject}",
             ActionType.Click when type is "radio" => $"I select the {subject}",
             ActionType.Click when element.TagName.Equals("a", StringComparison.OrdinalIgnoreCase) => $"I click the {subject} link",

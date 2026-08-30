@@ -24,24 +24,34 @@ public class GenerationResultCacheTests
     [Test]
     public void ComputeKey_IsStableForTheSameBundleAndOptions()
     {
-        var key1 = GenerationResultCache.ComputeKey(Bundle(), new GenerationOptions());
-        var key2 = GenerationResultCache.ComputeKey(Bundle(), new GenerationOptions());
+        var key1 = GenerationResultCache.ComputeKey(Bundle(), new GenerationOptions(), 8_000);
+        var key2 = GenerationResultCache.ComputeKey(Bundle(), new GenerationOptions(), 8_000);
         Assert.That(key1, Is.EqualTo(key2));
     }
 
     [TestCase("{\"a\":1}", "{\"a\":2}")]
     public void ComputeKey_DiffersWhenTheFlowJsonDiffers(string flowJsonA, string flowJsonB)
     {
-        var keyA = GenerationResultCache.ComputeKey(Bundle(flowJsonA), new GenerationOptions());
-        var keyB = GenerationResultCache.ComputeKey(Bundle(flowJsonB), new GenerationOptions());
+        var keyA = GenerationResultCache.ComputeKey(Bundle(flowJsonA), new GenerationOptions(), 8_000);
+        var keyB = GenerationResultCache.ComputeKey(Bundle(flowJsonB), new GenerationOptions(), 8_000);
         Assert.That(keyA, Is.Not.EqualTo(keyB));
     }
 
     [Test]
     public void ComputeKey_DiffersWhenMaxRepairAttemptsDiffers()
     {
-        var keyA = GenerationResultCache.ComputeKey(Bundle(), new GenerationOptions(MaxRepairAttempts: 1));
-        var keyB = GenerationResultCache.ComputeKey(Bundle(), new GenerationOptions(MaxRepairAttempts: 3));
+        var keyA = GenerationResultCache.ComputeKey(Bundle(), new GenerationOptions(MaxRepairAttempts: 1), 8_000);
+        var keyB = GenerationResultCache.ComputeKey(Bundle(), new GenerationOptions(MaxRepairAttempts: 3), 8_000);
         Assert.That(keyA, Is.Not.EqualTo(keyB));
+    }
+
+    // Raising the Groq plan's allowance must not replay a cached fallback that was only
+    // produced because the old allowance was too small.
+    [Test]
+    public void ComputeKey_DiffersWhenTheRequestAllowanceDiffers()
+    {
+        var free = GenerationResultCache.ComputeKey(Bundle(), new GenerationOptions(), 8_000);
+        var developer = GenerationResultCache.ComputeKey(Bundle(), new GenerationOptions(), 250_000);
+        Assert.That(free, Is.Not.EqualTo(developer));
     }
 }

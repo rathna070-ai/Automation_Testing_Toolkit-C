@@ -83,6 +83,18 @@ public static class PageObjectGenerator
                 sb.AppendLine("    }");
                 break;
 
+            case ActionType.Select:
+                sb.AppendLine($"    public void {plan.PageObjectMethodName}(string value)");
+                sb.AppendLine("    {");
+                sb.AppendLine($"        var element = FindVisible(\"{plan.LocatorKey}\");");
+                // Clear()+SendKeys() would throw here: Clear() on a non-editable element is
+                // "invalid element state" per the WebDriver spec. SelectElement is the
+                // supported way to drive a <select>, and SelectByText matches what the
+                // Gherkin step and the captured option text both say.
+                sb.AppendLine("        new SelectElement(element).SelectByText(value);");
+                sb.AppendLine("    }");
+                break;
+
             case ActionType.Click:
                 sb.AppendLine($"    public void {plan.PageObjectMethodName}()");
                 sb.AppendLine("    {");
