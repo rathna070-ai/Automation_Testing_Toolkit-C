@@ -20,7 +20,7 @@ public class ScriptRepairSkill : LlmSkill<ScriptRepairInput, GeneratedFileSet>
     // BuildMessages below replays the *entire* original prompt plus the model's full prior
     // response on top of the new repair turn.
     protected override string ReasoningEffort => "medium";
-    protected override int MaxCompletionTokens => 6000;
+    protected override int MaxCompletionTokens => ScriptGenerationSkill.CompletionTokenBudget;
 
     // Slightly warmer than generation: at near-zero temperature a model that misreads an
     // error tends to return the identical wrong fix again, burning the retry budget.

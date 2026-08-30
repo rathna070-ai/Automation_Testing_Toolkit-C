@@ -41,6 +41,10 @@ builder.Services.AddWebTestToolkitLlm();
 builder.Services.AddSingleton<BuildSandbox>();
 builder.Services.AddSingleton<ReferenceBundleBuilder>();
 builder.Services.AddSingleton<GeneratedProjectWriter>();
+// Singleton, not scoped: the whole point is surviving across requests — a preview clicked
+// twice with nothing changed is two separate HTTP requests, so a per-request cache would
+// never see its own entry.
+builder.Services.AddSingleton<GenerationResultCache>();
 builder.Services.AddScoped<HybridTestCodeGenerator>();
 
 // Browser sessions outlive the request that opened them; the manager is a singleton and

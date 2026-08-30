@@ -12,6 +12,7 @@ public class ExportController : ControllerBase
 {
     private const string XlsxContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
     private const string XmlContentType = "application/xml";
+    private const string ZipContentType = "application/zip";
 
     private readonly TestCaseProseSkill _proseSkill;
 
@@ -55,6 +56,23 @@ public class ExportController : ControllerBase
         var suite = await TestCaseSuiteBuilder.BuildAsync(request.Flow, _proseSkill, request.UseLlm, ct);
         var bytes = XmlTestCaseWriter.WriteBytes(suite);
         return File(bytes, XmlContentType, $"{FileSafeName(request.Flow.Name)}-test-cases.xml");
+    }
+
+    // P17: exports the generator's own output (Features/*.feature, Steps/*.cs,
+    // PageObjects/*.cs, LocatorRepository/*.locators.json) as a zip, alongside the
+    // testcases/xlsx and testcases/xml exports above which cover the documentation view
+    // instead. Takes the already-generated files rather than a flow to regenerate from — see
+    // ExportGeneratedFilesRequest's own comment for why.
+    [HttpPost("generated-files/zip")]
+    public ActionResult Zip([FromBody] ExportGeneratedFilesRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.FlowName))
+            return BadRequest(new { error = "A flow name is required." });
+        if (request.Files.Count == 0)
+            return BadRequest(new { error = "No files to export." });
+
+        var bytes = GeneratedFilesZipWriter.WriteBytes(request.Files);
+        return File(bytes, ZipContentType, $"{FileSafeName(request.FlowName)}-generated.zip");
     }
 
     private BadRequestObjectResult? Validate(TestFlow flow)

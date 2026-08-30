@@ -76,6 +76,13 @@ public class CodeGenerationResult
     public string? FallbackReason { get; init; }
     public IReadOnlyList<string> WrittenPaths { get; init; } = [];
 
+    // True when this result came back from GenerationResultCache instead of a fresh LLM call
+    // — the "click Preview twice without changing anything" case. The UI's provenance display
+    // already always shows which path produced the code (LlmVerified/Deterministic/etc.); this
+    // rides alongside it rather than replacing it, so a cache hit never looks indistinguishable
+    // from a fresh attempt.
+    public bool Cached { get; init; }
+
     public int TotalPromptTokens => Attempts.Sum(a => a.PromptTokens);
     public int TotalCompletionTokens => Attempts.Sum(a => a.CompletionTokens);
     public int TotalDurationMs => Attempts.Sum(a => a.DurationMs);

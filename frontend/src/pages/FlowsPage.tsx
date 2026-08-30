@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
+  downloadGeneratedFilesZip,
   generateFlow,
   previewFlow,
   suggestEdgeCases,
@@ -48,6 +49,7 @@ export function FlowsPage() {
   const [error, setError] = useState('')
   const [showAttempts, setShowAttempts] = useState(false)
   const [compareDeterministic, setCompareDeterministic] = useState(false)
+  const [downloadError, setDownloadError] = useState('')
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
 
   const [edgeCaseState, setEdgeCaseState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
@@ -221,6 +223,11 @@ export function FlowsPage() {
         <>
           <p style={{ color: SOURCE_LABELS[result.source]?.tone, fontWeight: 600 }}>
             {SOURCE_LABELS[result.source]?.text ?? result.source}
+            {result.cached && (
+              <span style={{ marginLeft: '0.5rem', fontWeight: 400, opacity: 0.7 }}>
+                (cached — nothing changed since the last run)
+              </span>
+            )}
           </p>
 
           {result.fallbackReason && (
@@ -305,7 +312,16 @@ export function FlowsPage() {
                   />{' '}
                   Show the deterministic version instead
                 </label>
+                <button
+                  onClick={() => {
+                    setDownloadError('')
+                    downloadGeneratedFilesZip(shownFiles, flow.name).catch((e) => setDownloadError(String(e)))
+                  }}
+                >
+                  Download as .zip
+                </button>
               </div>
+              {downloadError && <p style={{ color: '#cf222e' }}>{downloadError}</p>}
 
               <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
                 <ul style={{ listStyle: 'none', padding: 0, margin: 0, minWidth: 260 }}>

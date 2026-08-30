@@ -33,7 +33,8 @@ public record GenerateFlowResponse(
     IReadOnlyList<string> WrittenPaths,
     int TotalPromptTokens,
     int TotalCompletionTokens,
-    int TotalDurationMs)
+    int TotalDurationMs,
+    bool Cached)
 {
     public static GenerateFlowResponse From(CodeGenerationResult result) => new(
         result.Source.ToString(),
@@ -46,5 +47,6 @@ public record GenerateFlowResponse(
         result.WrittenPaths,
         result.TotalPromptTokens,
         result.TotalCompletionTokens,
-        result.TotalDurationMs);
+        result.TotalDurationMs,
+        result.Cached);
 }

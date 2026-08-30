@@ -179,7 +179,13 @@ public class HybridTestCodeGeneratorTests
         return JsonSerializer.Serialize(valid with { Files = files, Locators = locators });
     }
 
-    private static HybridTestCodeGenerator BuildGenerator(IChatClient chatClient)
+    // The default request allowance models a free Groq tier (8,000 TPM), which the assembled
+    // bundle exceeds on its own — correct in production, but it would short-circuit every test
+    // below before the fake model was ever consulted. These tests are about the generate →
+    // validate → repair → fall back loop, not about quota, so they run with the ceiling lifted;
+    // the one test that *is* about quota sets its own.
+    private static HybridTestCodeGenerator BuildGenerator(
+        IChatClient chatClient, int maxRequestTokens = int.MaxValue, GenerationResultCache? cache = null)
     {
         var prompts = new PromptLibrary();
         return new HybridTestCodeGenerator(
@@ -188,7 +194,11 @@ public class HybridTestCodeGeneratorTests
             new ReferenceBundleBuilder(),
             new BuildSandbox(NullLogger<BuildSandbox>.Instance),
             new GeneratedProjectWriter(),
-            NullLogger<HybridTestCodeGenerator>.Instance);
+            NullLogger<HybridTestCodeGenerator>.Instance,
+            // A fresh cache per test by default — these tests share nothing else, and a
+            // leaked hit from an earlier test would be a confusing false pass.
+            cache ?? new GenerationResultCache(),
+            maxRequestTokens);
     }
 
     // WriteToProject:false throughout — these tests must never mutate tests/.
@@ -206,6 +216,40 @@ public class HybridTestCodeGeneratorTests
         Assert.That(result.WrittenPaths, Is.Empty, "WriteToProject:false must not touch the real project.");
     }
 
+    // The deterministic path used to be compiled and nothing else, which left the one path
+    // that always runs as the only one with no static gate. The checks that matter here
+    // describe *runtime* failures, so a real compile can never stand in for them: this flow
+    // compiles perfectly and then throws the moment LocatorRepository.ToBy meets a strategy
+    // it does not support.
+    [Test]
+    public async Task DeterministicOutput_IsStaticallyValidated_NotJustCompiled()
+    {
+        var flow = BuildFlow();
+        flow.Steps[1].Element = new CapturedElement
+        {
+            TagName = "input",
+            Candidates = [new LocatorCandidate("linktext", "Sign in", 100)]
+        };
+
+        var generator = BuildGenerator(new SequencedChatClient());
+        var result = await generator.GenerateAsync(flow, new GenerationOptions(UseLlm: false, WriteToProject: false));
+
+        var deterministic = result.Attempts.Single(a => a.Kind == GenerationAttemptKind.Deterministic);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(deterministic.Issues.Select(i => i.Code), Does.Contain("WTT110"),
+                "An unsupported locator strategy compiles fine — only the static gate can catch it.");
+            Assert.That(deterministic.Succeeded, Is.False,
+                "A blocking issue must be reported as a failed attempt even when the compile passed.");
+
+            // But it must still hand back output: unlike an LLM attempt, this path has nothing
+            // left to fall back to, and returning nothing would leave the user empty-handed.
+            Assert.That(result.Files, Is.Not.Empty);
+            Assert.That(result.FallbackReason, Does.Contain("WTT110"));
+        });
+    }
+
     // A real, large captured flow (many steps, each carrying DOM context) hit a genuine
     // Groq 413 in practice — the request was too large before the model ever ran. Rather
     // than spend a request only to have it bounce, an oversized prompt should skip AI
@@ -214,23 +258,28 @@ public class HybridTestCodeGeneratorTests
     public async Task OversizedPrompt_SkipsAiEntirelyAndFallsBackToDeterministic()
     {
         var flow = BuildFlow();
-        // Comfortably over the 6000-token (~24,000-char) estimate threshold on its own.
+        // Deliberately NOT OuterHtmlSnippet: ReferenceBundleBuilder strips that field before
+        // it reaches the prompt, so oversizing it would make this test pass while proving
+        // nothing. VisibleText still travels in the flow JSON, and no generator derives a
+        // name from it, so inflating it cannot break the deterministic compile below.
         flow.Steps[0].Element = new CapturedElement
         {
             TagName = "div",
-            OuterHtmlSnippet = new string('a', 30_000),
+            VisibleText = new string('a', 250_000),
             Candidates = [new LocatorCandidate("id", "probe", 100)]
         };
 
         // Zero scripted responses: if the code actually called Groq, this would throw a
         // TransportError ("No more scripted responses") rather than silently succeeding —
         // so a passing DeterministicFallback here proves the call was skipped, not attempted.
-        var generator = BuildGenerator(new SequencedChatClient());
+        // Runs against the real shipped allowance, since that is what this test is about.
+        var generator = BuildGenerator(
+            new SequencedChatClient(), HybridTestCodeGenerator.DefaultMaxRequestTokens);
 
         var result = await generator.GenerateAsync(flow, Options());
 
         Assert.That(result.Source, Is.EqualTo(GenerationSource.DeterministicFallback));
-        Assert.That(result.FallbackReason, Does.Contain("too large for AI generation"));
+        Assert.That(result.FallbackReason, Does.Contain("tokens-per-minute allowance"));
         Assert.That(result.Attempts, Has.Count.EqualTo(1),
             "Only the deterministic compile attempt should be recorded — no LLM call was made.");
         Assert.That(result.Attempts[0].Kind, Is.EqualTo(GenerationAttemptKind.Deterministic));
@@ -249,6 +298,30 @@ public class HybridTestCodeGeneratorTests
         Assert.That(result.Attempts, Has.Count.EqualTo(1));
         Assert.That(result.DeterministicFiles, Is.Not.Empty, "The deterministic set is always kept for the compare view.");
     }
+
+    // P16 item 4 — the actual common case: clicking Preview twice without changing anything.
+    [Test]
+    public async Task RepeatedPreview_OfAnUnchangedFlow_IsServedFromCacheWithoutCallingTheModel()
+    {
+        // Exactly one scripted response: if the second call reached the model at all, it
+        // would throw "no more scripted responses" instead of returning a cache hit.
+        var chatClient = new SequencedChatClient(
+            ChatResult.Success(ValidModelResponse(), "openai/gpt-oss-120b", 500, 200));
+        var cache = new GenerationResultCache();
+        var flow = BuildFlow();
+
+        var first = await BuildGenerator(chatClient, cache: cache).GenerateAsync(flow, Options());
+        var second = await BuildGenerator(chatClient, cache: cache).GenerateAsync(flow, Options());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(first.Cached, Is.False, "The first call has nothing to hit yet.");
+            Assert.That(second.Cached, Is.True);
+            Assert.That(second.Source, Is.EqualTo(first.Source));
+            Assert.That(second.Files.Select(f => f.RelativePath), Is.EquivalentTo(first.Files.Select(f => f.RelativePath)));
+        });
+    }
+
 
     // An Advisory issue (WTT160, a duplicated-shape style nit) must ride along for the UI
     // without ever gating the build or burning a repair attempt on something that isn't

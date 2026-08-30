@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Extensions.Logging.Abstractions;
 using OpenQA.Selenium;
 using OpenQA.Selenium.Chrome;
 using WebTestToolkit.Contracts.Models;
@@ -121,7 +122,19 @@ public sealed class InspectorSession : IDisposable
         var service = ChromeDriverService.CreateDefaultService();
         service.HideCommandPromptWindow = true;
 
-        return new ChromeDriver(service, options);
+        var driver = new ChromeDriver(service, options);
+
+        // Defense-in-depth against a leaked chromedriver.exe/chrome.exe pair: pure .NET
+        // Dispose()/timeout logic only ever runs on a graceful shutdown, so a hard crash or
+        // kill of the API process would otherwise leave this browser running forever. A
+        // Windows Job Object with kill-on-close cleans it up at the OS level instead — see
+        // ChromeProcessJob's own comment for why. Best-effort and silent on failure: no
+        // logger reaches this static factory (StartAsync's public signature has no room for
+        // one without a bigger, riskier change than this cleanup is worth), and a failure
+        // here must never block a session from starting.
+        ChromeProcessJob.TryAssign(service.ProcessId, NullLogger.Instance);
+
+        return driver;
     }
 
     // ---------------------------------------------------------------- polling

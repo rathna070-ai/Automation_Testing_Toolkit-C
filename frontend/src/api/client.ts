@@ -112,6 +112,10 @@ export interface GenerateFlowResponse {
   totalPromptTokens: number
   totalCompletionTokens: number
   totalDurationMs: number
+  // True when this result came from the server's own cache (an unchanged Preview re-run)
+  // rather than a fresh attempt — rides alongside `source`, which still says which path
+  // (LLM/deterministic) originally produced the code.
+  cached: boolean
 }
 
 // Mirrors backend TestFlow/TestStep (Contracts/Models). Kept here rather than in inspect.ts
@@ -283,4 +287,16 @@ export function downloadTestCasesXlsx(request: ExportTestCasesRequest, flowName:
 
 export function downloadTestCasesXml(request: ExportTestCasesRequest, flowName: string): Promise<void> {
   return downloadFile('/api/export/testcases/xml', request, `${flowName}-test-cases.xml`)
+}
+
+// P17: exports the generator's own output — whichever file set (files or
+// deterministicFiles) the caller currently has selected — as a zip preserving each file's
+// real path and extension. Takes the files already in memory rather than re-running
+// generation, so this never triggers another LLM call just to zip content already on screen.
+export function downloadGeneratedFilesZip(files: GeneratedFile[], flowName: string): Promise<void> {
+  return downloadFile(
+    '/api/export/generated-files/zip',
+    { flowName, files },
+    `${flowName}-generated.zip`,
+  )
 }

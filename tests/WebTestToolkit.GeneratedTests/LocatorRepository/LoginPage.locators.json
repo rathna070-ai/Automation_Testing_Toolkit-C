@@ -1,5 +1,5 @@
 {
-  "url": "https://the-internet.herokuapp.com/login",
+  "url": "",
   "locators": {
     "UsernameInput": { "strategy": "id", "value": "username" },
     "PasswordInput": { "strategy": "id", "value": "password" },

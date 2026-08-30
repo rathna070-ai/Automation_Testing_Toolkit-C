@@ -74,7 +74,7 @@ project references to the toolkit at all, by design, so it stays runnable standa
 
 ## 2. Current status
 
-### Implemented — P1 through P13
+### Implemented — P1 through P17
 
 | Phase | Delivers | Key files |
 |---|---|---|
@@ -90,10 +90,17 @@ project references to the toolkit at all, by design, so it stays runnable standa
 | **P11** | Failure analyzer UI — reads the P10 run summary, filters to failures, shows error/stack trace/screenshot with a per-scenario "Analyze with Groq" button. Zero backend changes needed (skill 7 and its endpoint were already complete since P4) | `frontend/src/pages/FailuresPage.tsx` |
 | **P12** | Auto-heal — a locator picker (`GET /api/locators`, reading every `*.locators.json`) plus a single-capture re-inspect session that's an ordinary P7 `InspectorSession` under the hood (`/autoheal/start` opens Chrome at the broken locator's own page); the only new write is `LocatorJsonPatcher`, which rewrites exactly one key in one locator file, atomically, and never touches a `.cs` file | `Execution/Generation/LocatorJsonPatcher.cs`, `Api/Controllers/AutoHealController.cs`, `frontend/src/pages/AutoHealPage.tsx` |
 | **P13** | Five techniques adopted from a sibling project (see the grounding note below): `WTT152` rejects a no-op `Given`/`When` body the same way `WTT151` already rejects a no-op `Then`; `WTT150` now distinguishes a case-only mismatch ("matches only when case is ignored") from a genuinely missing binding; `IssueSeverity {Blocking, Advisory}` on `ValidationIssue`, with a new `WTT160` structural duplicated-interaction-block check emitted as `Advisory` so a style nit can never gate the build or burn a repair attempt; the Inspect overlay now captures real element state (`<select>` options, checkbox/radio `checked`, `required`, `maxLength`) instead of leaving the model to guess from an HTML snippet (overlay version bumped 3→4); and `InspectPage` shows every ranked locator alternative with a rationale, not just the best one | `Execution/Generation/StaticValidator.cs`, `Contracts/Models/GenerationModels.cs`, `Inspector/Overlay/inspector-overlay.js`, `Inspector/Capture/{RawCapture,LocatorRanker}.cs`, `frontend/src/pages/InspectPage.tsx` |
+| **P16** | Risk mitigation, all six items — adversarial-DOM injection tests proving `StaticValidator` (not prompt fencing) is the real trust boundary; `DriverContext` wraps `ChromeDriver` creation in an actionable error; the hand-written sample suite now runs against a local `TinyWebServer` fixture instead of `the-internet.herokuapp.com`; `GenerationResultCache` serves a repeated *unchanged* Preview from an in-memory cache (scoped to `WriteToProject:false` only — a cache hit must never silently skip writing a real Generate click) with a `Cached` flag surfaced through to the UI; a Windows Job Object (`ChromeProcessJob`/`ChildProcessFinder`, P/Invoke) kills every chromedriver/Chrome process the instant the API process dies, graceful or not — live-verified by force-killing the API mid-session and confirming both processes vanished while unrelated Chrome windows survived; Auto-heal's UI states its structural-change limit | `Execution/Generation/GenerationResultCache.cs`, `Inspector/{ChromeProcessJob,ChildProcessFinder}.cs`, `tests/WebTestToolkit.GeneratedTests/Support/{DriverContext,Hooks,TinyWebServer}.cs`, `frontend/src/pages/AutoHealPage.tsx` |
+| **P17** | Export generated script files — `POST /api/export/generated-files/zip` zips whichever file set (`files`/`deterministicFiles`) the frontend already holds in memory, one entry per `GeneratedFile.RelativePath`, no regeneration triggered. Caught live during verification: the first version emitted a UTF-8 BOM per entry (`Encoding.UTF8`'s default preamble) that `File.WriteAllText` — what a real Generate actually writes with — never emits; fixed to an explicit no-BOM encoding and pinned with a dedicated regression test | `Export/GeneratedFilesZipWriter.cs`, `Api/Controllers/ExportController.cs`, `frontend/src/api/client.ts`, `frontend/src/pages/FlowsPage.tsx` |
 
-**Verified:** 170/170 backend tests (plus 5/5 opt-in `[Category("Browser")]` real-Chrome tests —
-`dotnet test --filter "Category=Browser"`), `dotnet build` clean (Debug + Release, 15 projects), frontend
-`tsc`/`vite build`/`oxlint` clean. Every phase from P5 on was also exercised live in a real browser
+**Verified:** 187/187 backend tests (plus 5/5 opt-in `[Category("Browser")]` real-Chrome tests —
+`dotnet test --filter "Category=Browser"`, which now also live-proves P16 item 3's crash cleanup
+doesn't break normal session start), `dotnet build` clean (Debug + Release, 15 projects), frontend
+`tsc`/`vite build`/`oxlint` clean. `tests/WebTestToolkit.GeneratedTests` (the hand-written sample
+project, not toolkit test coverage) is 2/4 green — `Nert`/`Nrert1`, two real flows generated in an
+earlier session before P18 item 1 existed, still carry the ambiguous-binding defect that check would
+now catch; they need regenerating, not a toolkit fix. The `Login` scenarios in that same project are
+the P16 item 6 proof: 2/2 green against the new local `TinyWebServer` fixture. Every phase from P5 on was also exercised live in a real browser
 against the running API before being marked done, including deliberately forcing real compiler
 errors (P5), real test failures (P10/P11), and — for P12 — a real broken locator healed back to a
 passing test through the actual UI and API, not a mock. **P12's own acceptance line, run for real**:
@@ -153,10 +160,14 @@ issues" button (P5's repair loop already automates that). The five genuinely new
 
 | Phase | Adds | Acceptance |
 |---|---|---|
-| **P16** | Risk mitigation — closes the actionable gaps found in §6's audit | Each item lands as an isolated, tested addition to already-shipped code |
-| **P17** | Export generated script files — a zip download of the generator's own `.feature`/`.cs`/`.json` output, extensions preserved | Unzips to the same folder layout `GeneratedProjectWriter` would write, no regeneration triggered |
+| **P18** | Generation reliability — closes the three causes behind the observed high generation-failure rate | A normal-sized flow reaches the model again, and the deterministic path is validated, not just compiled |
 
-#### P16 — risk mitigation
+P16 and P17 are implemented — see the table above. §6 below still narrates them in the risk ledger's
+own voice (what was open, what closed it), and this section keeps both subsections as the permanent
+build record, same as P5's `PageObjectMerger` narrative stays inline rather than being deleted once
+shipped.
+
+#### P16 — risk mitigation *(implemented)*
 
 Six items, each closing a gap §6's risk ledger flags as open or half-mitigated. Skipped: risks
 already resolved or mitigated by design (LLM-output safety, Groq model deprecation, the P3-era
@@ -179,18 +190,35 @@ to build).
    kills orphaned children the moment the API process dies uncleanly — the one mitigation here that
    can't be done in pure .NET `Dispose()`/timeout logic, since that only ever runs on a graceful
    path. Matches the project's existing Windows-only design (DPAPI, `[SupportedOSPlatform("windows")]`)
-   — not a new platform constraint. Needs P/Invoke (`CreateJobObject`/`SetInformationJobObject`/
-   `AssignProcessToJobObject`), assigned before chromedriver spawns its own Chrome child — job
-   membership cascades to children automatically, so this only has to happen once, early.
-   `backend/WebTestToolkit.Inspector/InspectorSession.cs` (driver creation).
+   — not a new platform constraint. `backend/WebTestToolkit.Inspector/{ChromeProcessJob,ChildProcessFinder}.cs`
+   (driver creation in `InspectorSession.cs`).
+   **As built:** the original phrasing here ("assigned before chromedriver spawns its own Chrome
+   child — job membership cascades automatically") assumed a hook the public Selenium API doesn't
+   expose — chromedriver.exe starting and it spawning chrome.exe happen inside the same
+   `new ChromeDriver(...)` call, with no moment to intervene between them. Shipped design instead:
+   once the driver call returns, explicitly assign *both* chromedriver.exe and its now-existing
+   chrome.exe child (found via a `CreateToolhelp32Snapshot` walk, `ChildProcessFinder.cs`, since
+   .NET's `Process` exposes no parent PID) to the job. Chrome's own further children — renderer/GPU
+   processes it spawns continuously during operation — still cascade automatically once chrome.exe
+   itself is a member, so only that one explicit step was needed. Live-verified: started a real
+   session, confirmed chromedriver.exe and chrome.exe via `Win32_Process`, force-killed the API
+   process (not a graceful shutdown), and watched both die automatically while ~17 pre-existing,
+   unrelated Chrome windows on the machine were untouched.
 4. **Generation-result caching** — hash the fully-assembled prompt string (already deterministic per
-   call via `ReferenceBundleBuilder` + the flow JSON) as a cache key; an in-memory
-   `ConcurrentDictionary<string, CodeGenerationResult>` (or a small new singleton service) covers the
-   actual common case — clicking Preview twice without changing anything. Add a `Cached` flag to the
-   result so the UI's existing provenance display stays honest about it, matching the project's
+   call via `ReferenceBundleBuilder` + the flow JSON) as a cache key; a small new singleton service
+   (`GenerationResultCache`, `ConcurrentDictionary<string, CodeGenerationResult>` inside) covers the
+   actual common case — clicking Preview twice without changing anything. Added a `Cached` flag to
+   the result so the UI's existing provenance display stays honest about it, matching the project's
    standing "always show which path produced the code" rule.
-   `backend/WebTestToolkit.Execution/Generation/HybridTestCodeGenerator.cs`,
+   `backend/WebTestToolkit.Execution/Generation/{HybridTestCodeGenerator,GenerationResultCache}.cs`,
    `backend/WebTestToolkit.Contracts/Models/GenerationModels.cs`, `frontend/src/pages/FlowsPage.tsx`.
+   **As built:** scoped to `WriteToProject:false` (Preview) only — a decision made during
+   implementation, not fully spelled out in the original plan. A Generate click always has to
+   actually write files; a cache hit that skipped `GeneratedProjectWriter.Write` would silently do
+   nothing on a repeated Generate despite the user asking for exactly that. Preview-twice-unchanged
+   is also the case this item exists for in the first place. Live-verified via the real API: two
+   identical Preview calls returned `cached: false` then `cached: true`, the second with no LLM
+   round trip.
 5. **Auto-heal scope note in the UI** — one sentence in `AutoHealPage.tsx`'s intro: "Auto-heal
    handles a locator that changed on the same element; a structural change (the element removed, the
    form redesigned) needs a fresh Inspect recording instead." Lowest-effort item here.
@@ -204,7 +232,7 @@ to build).
 Suggested build order: 5 → 1 → 2 (independent, additive, smallest first) → 6 → 4, then 3 last — the
 only item touching OS process semantics rather than this codebase's own established patterns.
 
-#### P17 — export generated script files
+#### P17 — export generated script files *(implemented)*
 
 P6 shipped export for the test-case *documentation* view only (Excel/XML scenario summaries, via
 `ExportController` → `ExcelTestCaseWriter`/`XmlTestCaseWriter`). There's still no way to export the
@@ -237,6 +265,94 @@ would work later, not needed for the base ask.
 `backend/WebTestToolkit.Export/GeneratedFilesZipWriter.cs` (new),
 `frontend/src/api/client.ts`, `frontend/src/pages/FlowsPage.tsx`.
 
+**As built:** live verification caught a bug the round-trip unit test missed. The first version
+wrote each entry through a `StreamWriter(entryStream, Encoding.UTF8)` — `Encoding.UTF8`'s static
+instance emits a byte-order-mark preamble, so every unzipped file carried a leading 3-byte BOM
+that `File.WriteAllText` (what `GeneratedProjectWriter` actually writes to disk with) never emits.
+The original test read entries back through a `StreamReader`, which auto-strips a BOM on the way
+in — symmetrically hiding the exact asymmetry it should have caught. Fixed to an explicit
+`new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)`, confirmed against a real API call
+(POST the endpoint, unzip, inspect the raw first bytes), and pinned with a
+`WriteBytes_NeverEmitsAUtf8Bom` test that reads raw bytes rather than through a `StreamReader`.
+
+#### P18 — generation reliability
+
+Prompted by a direct comparison against a sibling Chrome-extension project that "never errors when
+generating." That comparison needs framing first: the extension renders LLM output as markdown in a
+chat panel and offers a Copy button — it never writes a file, never compiles, and its
+`CodeQualityAnalyzer`/`FeatureStepConsistency` panels are advisory, gating nothing. It therefore
+*cannot* report a generation failure. Its own `feature-step-consistency.js` header concedes the
+output has the defect anyway ("no guarantee they actually agree with each other ... only surface as
+a runtime binding failure") — a detector for precisely what `StaticValidator`'s WTT150 blocks here.
+So the gate is not the problem and is not up for removal. But three real causes of the high failure
+rate did come out of the review.
+
+**The actual root cause, established by live test rather than by reading — the Groq plan's
+per-minute allowance.** A real 15-step flow POSTed to `/api/flows/preview` came back with:
+
+```
+HTTP 413: Request too large for model `openai/gpt-oss-120b` ... service tier `on_demand`
+on tokens per minute (TPM): Limit 8000, Requested 17296
+```
+
+Two earlier readings of this were wrong and are worth recording so they are not re-derived: it is
+**not** the model's context window (`gpt-oss-120b` holds 131,072 tokens) and **not** a per-request
+byte cap. It is an *account* allowance metered per minute, and Groq counts the prompt plus the
+reserved `max_completion_tokens` together — so a request bigger than the whole minute's budget can
+never succeed, however long you wait.
+
+The arithmetic explains the symptom completely. `CompletionTokenBudget` reserves 6,000 of the 8,000,
+leaving ~2,000 for the prompt — while `ReferenceBundleBuilder`'s **fixed** parts alone (support API
+3,828 chars + gold sample 3,730 + csproj 1,078 + the deterministic reference implementation ~7,611
+for a five-step flow) already cost ~4,000 tokens before a single captured step is added. On the free
+tier the AI path is therefore unreachable for any realistic flow, and every generation lands on the
+deterministic generator. That is a quota ceiling, not a code defect — but it is why "it keeps
+failing," and it is why P18 item 1 below matters so much.
+
+**Already fixed (not P18 items):** the guard now measures the whole request
+(`EstimatePromptTokens + CompletionTokenBudget`) against the plan allowance instead of the prompt
+alone, so an unaffordable flow is skipped locally with an honest reason naming the tier — rather
+than spending a round trip to collect a 413. The allowance is a constructor parameter
+(`DefaultMaxRequestTokens = 8_000`) precisely because it tracks the plan, not the code.
+`ReferenceBundleBuilder.SerializeFlowForPrompt` also now drops `OuterHtmlSnippet` and
+`AncestorContext` from the flow JSON — they exist for the Inspect-time label/assertion prompts and
+are pure weight once the labels are chosen. Shrinking the bundle further (P18 item 3) is the only
+remaining lever that widens the AI path on this tier.
+
+1. **Validate the deterministic path, not just compile it** — *implemented*; recorded here because
+   it is the finding, not a leftover.
+   `StaticValidator.Validate` is called from exactly one place: inside the LLM attempt loop.
+   `FinishWithDeterministicAsync` — the path taken by every `useLlm:false` run, every fallback, and
+   (before the fix above) most real flows — only calls `_sandbox.TryBuildAsync`. Ambiguous Reqnroll
+   bindings are a *runtime* error, so a suite where two flows define the same step pattern compiles
+   cleanly and is written anyway. This is not hypothetical: the committed `Nert` and `Nrert1` flows
+   in `tests/WebTestToolkit.GeneratedTests` currently fail with "Ambiguous step definitions found for
+   step 'Given I open the home page'" across six shared patterns, which WTT130/WTT131 would have
+   caught at generation time. Run `StaticValidator` over the deterministic candidate before the
+   sandbox build and surface blocking issues the same way the LLM path does — the "always-safe"
+   fallback is currently the *least*-checked path in the system.
+   `backend/WebTestToolkit.Execution/Generation/HybridTestCodeGenerator.cs`.
+2. **`Select` action type + checkbox/radio handling** — P13 item 4 added `Checked`/`Required`/
+   `MaxLength`/`Options` to `CapturedElement`, and a grep for those names across `backend/` returns
+   hits only in `CapturedElement.cs` itself: nothing consumes them. `ActionType` is
+   `Navigate | Click | Type | AssertText | AssertVisible` — no `Select` — and
+   `PageObjectGenerator.AppendActionMethod` emits `Clear(); SendKeys(value);` for every `Type` step,
+   so a captured `<select>` gets `SendKeys` called on it. This is exactly what the extension's
+   `dom-analyzer.js` documents avoiding ("without the real option list a `<select>` looks identical
+   to a text input"). Add `Select` to `ActionType`, branch to `new SelectElement(...).SelectByText(value)`,
+   use `Options` for the Gherkin example value and `Checked` to choose Check vs Uncheck.
+   `Contracts/Models/ActionType.cs`, `CodeGenerator/{PageObjectGenerator,GherkinStepPlanner,StepsGenerator}.cs`,
+   plus the Inspect-side capture that assigns the action type.
+3. **Digest-shaped prompt** — the extension pre-computes `analyzedElements` (method name + action +
+   real element state) and `recommendedLocators` (ranked strategy + score) and hands the model
+   conclusions. We ship the raw `Candidates` array and let it re-derive a ranking
+   `CapturedElement.BestLocator` has already computed. Replacing the array with a per-step digest is
+   both smaller and easier for the model. Reuses `BestLocator` and `Naming.ToPascalCaseIdentifier`.
+   `backend/WebTestToolkit.Execution/Generation/ReferenceBundleBuilder.cs`.
+
+Build order: 1 first and alone — it is a correctness gap in the safety net and independent of the
+other two.
+
 ### Effort and model estimates
 
 Actuals for P3–P13: roughly 6 hrs for P1–P3; P4, P6, P8, P9, P10, P11, P12 each finished within a
@@ -254,15 +370,27 @@ Opus 5 only when a phase is mostly "make an external, non-deterministic system b
 code against a known API"; Haiku 4.5 is viable for more than originally assumed when the change is
 additive to an already-well-established pattern in the codebase (five isolated rule/field additions
 to `StaticValidator`/`CapturedElement`, not a new subsystem) — reserve the Sonnet-5 default for work
-that's actually inventing a new shape, not just repeating one.
+that's actually inventing a new shape, not just repeating one. **P16/P17 push that revision
+further**: all six P16 items plus P17 landed in one session, entirely on **Sonnet 5** — including
+item 3 (the Chrome Job Object), originally the one item pre-estimated as needing Opus 5 specifically
+*because* it was Windows P/Invoke touching OS process-lifetime semantics, the same tier P5/P7 used
+for "make an external, non-deterministic system behave." It still needed a real design change
+mid-implementation (explicit child-process assignment in place of the pre-spawn cascade the plan
+assumed, once the public Selenium API turned out not to expose a hook for that), and its correctness
+was proved by an actual crash-and-observe test against a live process tree, not by code inspection —
+so the *task* was exactly as hard as estimated; Sonnet 5 handled the reasoning P5/P7/P16-item-3's
+own pattern says needs "make an external system behave," not just "write code against a known API."
+Two bugs were also caught only by live verification rather than by the test suite passing: P18's
+prompt-cap regression from the prior session (a wrong number, not a wrong design), and P17's UTF-8
+BOM (a correct-looking round-trip test that happened to hide the exact asymmetry it should have
+caught). Neither would have been visible from build-clean-plus-tests-green alone.
+
+P18 item 1 (validate the deterministic path) is also already implemented — see its own list entry
+above — leaving only the not-yet-built work below.
 
 | Phase | Effort (hrs) | Model |
 |---|---|---|
-| **P16** — items 1/2/5 | 1–2 hrs total | Haiku 4.5 viable (mechanical, additive — same tier P13 actually landed on) |
-| **P16** — item 6 (sample suite → `TinyWebServer`) | 1–2 | Sonnet 5 |
-| **P16** — item 4 (generation caching) | 2–4 | Sonnet 5 (new service + wiring + UI flag) |
-| **P16** — item 3 (Chrome Job Object) | 4–6 | Opus 5 (Windows P/Invoke, OS process-lifetime semantics — the "outside the model's control" tier P5/P7 already established) |
-| **P17** — export generated script files | 1–2 | Haiku 4.5 viable (reuses P6's own controller/writer/`downloadFile` shape end to end) |
+| **P18** — items 2/3 | 2–4 | Sonnet 5 (item 2 crosses contract + generators + capture; item 3 is a prompt-shape change with a measurable size target) |
 | **Deferred from P9/P10** — skills 3 & 5, `[AfterStep]` screenshots, screenshot preview | 10–14 | Sonnet 5 |
 
 ---
@@ -430,9 +558,19 @@ ledger). The actionable gaps are packaged as **P16** in §2's roadmap.
    `ScriptRepairSkill` were dropped from `high`/8192 to `medium`/6000 reasoning effort and completion
    tokens, and `HybridTestCodeGenerator` now estimates the assembled prompt's size upfront and skips
    straight to the deterministic generator (with the reason shown in the UI) rather than spending a
-   request that would just bounce. That closes the 413 and trims per-call cost, but doesn't address
-   the *redundant*-call case (clicking Preview twice on an unchanged flow) — caching that is still
-   open → **P16 item 4**.
+   request that would just bounce. The 413's own body settled what the limit actually is, after two
+   wrong guesses (the model's context window; a per-request byte cap): `service tier on_demand on
+   tokens per minute (TPM): Limit 8000, Requested 17296` — an **account** allowance, metered per
+   minute, counting prompt plus reserved completion together. The guard now measures the whole
+   request against that allowance (`DefaultMaxRequestTokens`, a constructor parameter because it
+   tracks the Groq plan rather than the code), and `SerializeFlowForPrompt` drops
+   `OuterHtmlSnippet`/`AncestorContext` so the saving comes from sending less rather than from
+   refusing to call. **Still open, and the honest headline:** on the free tier the 6,000-token
+   completion reservation plus `ReferenceBundleBuilder`'s ~4,000-token fixed floor exhausts the 8,000
+   budget before any captured step is added, so the AI path is unreachable there and every generation
+   is deterministic — shrinking the bundle (**P18 item 3**) or upgrading the plan are the only levers.
+   The *redundant*-call case (clicking Preview twice on an unchanged flow) is separately open →
+   **P16 item 4**.
 7. **Auto-heal scope (P12)** — handles "same element, changed locator" only; structural page
    changes still need a re-record.
    **Status: mechanism is correct, but this still isn't communicated in the UI** → **P16 item 5**.

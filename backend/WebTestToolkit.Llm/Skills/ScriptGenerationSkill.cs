@@ -24,7 +24,13 @@ public class ScriptGenerationSkill : LlmSkill<ScriptGenerationInput, GeneratedFi
 
     // Lowered from 8192 alongside the effort drop, for the same reason: reasoning tokens
     // count against this budget on gpt-oss, so the two settings move together.
-    protected override int MaxCompletionTokens => 6000;
+    //
+    // Public because Groq meters a request as prompt + this reservation together, so
+    // HybridTestCodeGenerator's pre-flight size check has to add the same number rather than
+    // keep a second copy of it that can drift.
+    public const int CompletionTokenBudget = 6000;
+
+    protected override int MaxCompletionTokens => CompletionTokenBudget;
 
     protected override string BuildUserMessage(ScriptGenerationInput input) => BuildPrompt(input);
 

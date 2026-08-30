@@ -132,6 +132,10 @@ export function AutoHealPage() {
         browser window that opens, and this rewrites that one entry in its <code>.locators.json</code>{' '}
         file — never the generated <code>.cs</code> code.
       </p>
+      <p style={{ opacity: 0.7, fontSize: '0.9em' }}>
+        Auto-heal handles a locator that changed on the same element; a structural change (the
+        element removed, the form redesigned) needs a fresh Inspect recording instead.
+      </p>
 
       {phase === 'picking' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxWidth: 480, margin: '1rem 0' }}>

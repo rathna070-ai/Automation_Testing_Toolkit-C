@@ -23,6 +23,8 @@ public class HybridTestCodeGenerator
     private readonly BuildSandbox _sandbox;
     private readonly GeneratedProjectWriter _writer;
     private readonly ILogger<HybridTestCodeGenerator> _logger;
+    private readonly GenerationResultCache _cache;
+    private readonly int _maxRequestTokens;
 
     public HybridTestCodeGenerator(
         ScriptGenerationSkill generationSkill,
@@ -30,7 +32,9 @@ public class HybridTestCodeGenerator
         ReferenceBundleBuilder bundleBuilder,
         BuildSandbox sandbox,
         GeneratedProjectWriter writer,
-        ILogger<HybridTestCodeGenerator> logger)
+        ILogger<HybridTestCodeGenerator> logger,
+        GenerationResultCache cache,
+        int maxRequestTokens = DefaultMaxRequestTokens)
     {
         _generationSkill = generationSkill;
         _repairSkill = repairSkill;
@@ -38,6 +42,8 @@ public class HybridTestCodeGenerator
         _sandbox = sandbox;
         _writer = writer;
         _logger = logger;
+        _cache = cache;
+        _maxRequestTokens = maxRequestTokens;
     }
 
     public async Task<CodeGenerationResult> GenerateAsync(
@@ -63,25 +69,52 @@ public class HybridTestCodeGenerator
         var bundle = _bundleBuilder.Build(flow, deterministicFiles);
         var existingBindings = _bundleBuilder.ExistingBindings(flow.Name);
 
-        // A large captured flow (many steps, each carrying DOM context) can assemble a
-        // prompt Groq's on_demand tier rejects outright with a 413 before the model ever
-        // runs — not a hypothetical, a real flow hit this. Estimate up front and skip
-        // straight to the deterministic generator rather than spending a request only to
-        // have it bounce; the estimate uses the same token unit ScriptGenerationSkill's own
-        // MaxCompletionTokens is measured in, so the two numbers stay comparable.
-        var estimatedPromptTokens = EstimatePromptTokens(bundle);
-        if (estimatedPromptTokens > MaxPromptTokens)
+        // Scoped to Preview (WriteToProject:false) only — a Generate click must always
+        // actually write files, and a cache hit that skipped GeneratedProjectWriter.Write
+        // would silently do nothing on a repeat click despite the user asking for exactly
+        // that. Preview-twice-unchanged is also the case this exists for in the first place:
+        // reviewing a result, tweaking nothing, and re-running it just to see it again.
+        var cacheKey = options.WriteToProject ? null : GenerationResultCache.ComputeKey(bundle, options);
+        if (cacheKey is not null && _cache.TryGet(cacheKey, out var cached))
         {
-            progress?.Report(
-                $"This flow's prompt is too large for AI generation (~{estimatedPromptTokens} estimated tokens, over the {MaxPromptTokens}-token limit) — using the deterministic generator instead…");
-            _logger.LogInformation(
-                "Skipping AI generation for '{Flow}': estimated prompt size {Estimated} exceeds the {Limit}-token limit",
-                flow.Name, estimatedPromptTokens, MaxPromptTokens);
+            progress?.Report("Using the cached result for this exact flow — nothing changed since the last run.");
+            return new CodeGenerationResult
+            {
+                Source = cached.Source,
+                Files = cached.Files,
+                DeterministicFiles = cached.DeterministicFiles,
+                Attempts = cached.Attempts,
+                FallbackReason = cached.FallbackReason,
+                WrittenPaths = cached.WrittenPaths,
+                Cached = true
+            };
+        }
 
-            return await FinishWithDeterministicAsync(
+        // Groq bills the prompt *and* the reserved completion budget against one per-minute
+        // allowance, so both have to be counted here or the check passes a request the API
+        // then rejects. A request bigger than the whole per-minute allowance can never
+        // succeed — retrying or waiting does not help — so skip locally rather than spend a
+        // round trip on a guaranteed 413.
+        var estimatedRequestTokens = EstimatePromptTokens(bundle) + ScriptGenerationSkill.CompletionTokenBudget;
+        if (estimatedRequestTokens > _maxRequestTokens)
+        {
+            var skipReason =
+                $"This flow needs about {estimatedRequestTokens} tokens per AI request (prompt plus the " +
+                $"{ScriptGenerationSkill.CompletionTokenBudget}-token response reservation), over the Groq plan's " +
+                $"{_maxRequestTokens}-tokens-per-minute allowance — capture a shorter flow or upgrade the Groq tier to use AI here. " +
+                "Used the deterministic generator instead.";
+
+            progress?.Report(skipReason);
+            _logger.LogInformation(
+                "Skipping AI generation for '{Flow}': estimated request size {Estimated} exceeds the {Limit}-token-per-minute allowance",
+                flow.Name, estimatedRequestTokens, _maxRequestTokens);
+
+            var skipResult = await FinishWithDeterministicAsync(
                 flow, deterministicSet, attempts, GenerationSource.DeterministicFallback,
-                $"This flow's prompt is too large for AI generation (~{estimatedPromptTokens} estimated tokens, over the {MaxPromptTokens}-token limit) — used the deterministic generator instead.",
-                options, progress, ct);
+                skipReason, options, progress, ct);
+            if (cacheKey is not null)
+                _cache.Set(cacheKey, skipResult);
+            return skipResult;
         }
 
         GeneratedFileSet? previousResponse = null;
@@ -163,7 +196,7 @@ public class HybridTestCodeGenerator
                 var written = options.WriteToProject ? _writer.Write(files) : [];
                 progress?.Report($"Compiled. {files.Count} files {(options.WriteToProject ? "written" : "ready")}.");
 
-                return new CodeGenerationResult
+                var llmResult = new CodeGenerationResult
                 {
                     Source = isRepair ? GenerationSource.LlmRepaired : GenerationSource.LlmVerified,
                     Files = files,
@@ -171,6 +204,9 @@ public class HybridTestCodeGenerator
                     Attempts = attempts,
                     WrittenPaths = written
                 };
+                if (cacheKey is not null)
+                    _cache.Set(cacheKey, llmResult);
+                return llmResult;
             }
 
             lastIssues = issues;
@@ -185,8 +221,11 @@ public class HybridTestCodeGenerator
               ?? "The model call did not succeed.";
 
         progress?.Report("Falling back to the deterministic generator…");
-        return await FinishWithDeterministicAsync(
+        var fallbackResult = await FinishWithDeterministicAsync(
             flow, deterministicSet, attempts, GenerationSource.DeterministicFallback, reason, options, progress, ct);
+        if (cacheKey is not null)
+            _cache.Set(cacheKey, fallbackResult);
+        return fallbackResult;
     }
 
     // Even the fallback gets compiled before it's written — if this fails, the problem is
@@ -207,13 +246,25 @@ public class HybridTestCodeGenerator
             deterministicSet.ToDictionary(f => f.RelativePath, f => f.Content, StringComparer.Ordinal),
             SolutionPaths.GeneratedTestsDirectory());
 
+        // The deterministic output goes through the same static gate the LLM output does.
+        // It used to be compiled and nothing more, which left the *only* always-taken path as
+        // the least-checked one: the checks that matter most here — WTT130/WTT131, ambiguous
+        // or colliding Reqnroll bindings — describe a **runtime** failure, so a suite where
+        // two flows define the same step pattern compiles perfectly and is written anyway.
+        // That is not hypothetical; it is how two real committed flows ended up unable to run.
+        progress?.Report("Checking the deterministic output…");
+        var validationIssues = StaticValidator.Validate(
+            ToValidatableFileSet(candidate), _bundleBuilder.ExistingBindings(flow.Name));
+
         progress?.Report("Compiling the deterministic output…");
         var build = await _sandbox.TryBuildAsync(candidate, PathsToClear(flow, deterministicSet), ct);
         stopwatch.Stop();
 
+        var allIssues = validationIssues.Concat(build.Issues).ToList();
         attempts.Add(new GenerationAttempt(
             attempts.Count + 1, GenerationAttemptKind.Deterministic, null,
-            build.Succeeded, (int)stopwatch.ElapsedMilliseconds, 0, 0, build.Issues));
+            build.Succeeded && !HasBlockingIssues(validationIssues),
+            (int)stopwatch.ElapsedMilliseconds, 0, 0, allIssues));
 
         if (!build.Succeeded)
         {
@@ -234,6 +285,22 @@ public class HybridTestCodeGenerator
         var written = options.WriteToProject ? _writer.Write(mergedFiles) : [];
         progress?.Report($"Compiled. {mergedFiles.Count} files {(options.WriteToProject ? "written" : "ready")}.");
 
+        // A blocking issue cannot suppress this result the way it can an LLM attempt: there is
+        // no further path to fall back to, and returning nothing would leave the user with no
+        // output at all. Surface it loudly on the reason and the attempt instead — the issue
+        // is almost always something in the *existing* project (a step pattern another flow
+        // already claims), which the user has to resolve by editing or removing that flow.
+        var blocking = validationIssues.Where(i => i.Severity == IssueSeverity.Blocking).ToList();
+        if (blocking.Count > 0)
+        {
+            var warning =
+                $"Warning: the generated suite has {blocking.Count} problem(s) that will not show up as a " +
+                "compile error but will fail when the tests run — " +
+                string.Join("; ", blocking.Take(3).Select(i => $"{i.Code} {i.Message}"));
+            progress?.Report(warning);
+            fallbackReason = string.IsNullOrWhiteSpace(fallbackReason) ? warning : $"{fallbackReason} {warning}";
+        }
+
         return new CodeGenerationResult
         {
             Source = source,
@@ -244,6 +311,49 @@ public class HybridTestCodeGenerator
             WrittenPaths = written
         };
     }
+
+    // The inverse of BuildCandidateFiles: a plain file dictionary back into the shape
+    // StaticValidator reads. The split matters — the validator's allowed-path rule covers only
+    // .feature/.cs, because in the LLM flow locators arrive as *data* rather than as files, so
+    // handing it the locator JSON as a file would trip WTT001 on output that is perfectly fine.
+    private static GeneratedFileSet ToValidatableFileSet(IReadOnlyDictionary<string, string> candidate)
+    {
+        var files = new List<GeneratedFileDto>();
+        var locators = new List<GeneratedLocatorDto>();
+
+        foreach (var (path, content) in candidate.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+        {
+            var normalized = path.Replace('\\', '/');
+            if (!normalized.EndsWith(".locators.json", StringComparison.OrdinalIgnoreCase))
+            {
+                files.Add(new GeneratedFileDto(normalized, content));
+                continue;
+            }
+
+            var page = Path.GetFileName(normalized);
+            page = page[..^".locators.json".Length];
+
+            PageLocators? parsed;
+            try
+            {
+                parsed = JsonSerializer.Deserialize<PageLocators>(content, LocatorReadOptions);
+            }
+            catch (JsonException)
+            {
+                continue; // malformed locator JSON is the compile/runtime step's problem, not this one
+            }
+
+            if (parsed is null)
+                continue;
+
+            foreach (var (key, entry) in parsed.Locators)
+                locators.Add(new GeneratedLocatorDto(page, key, entry.Strategy, entry.Value, parsed.Url));
+        }
+
+        return new GeneratedFileSet(files, locators, Summary: "");
+    }
+
+    private static readonly JsonSerializerOptions LocatorReadOptions = new() { PropertyNameCaseInsensitive = true };
 
     // The model's .cs/.feature files, plus locator JSON we serialize ourselves from its
     // `locators` array. Any .locators.json the model tried to author is discarded.
@@ -299,9 +409,28 @@ public class HybridTestCodeGenerator
     private static bool HasBlockingIssues(IReadOnlyList<ValidationIssue> issues) =>
         issues.Any(i => i.Severity == IssueSeverity.Blocking);
 
-    // Matches ScriptGenerationSkill.MaxCompletionTokens — kept as one round number rather
-    // than trying to mirror Groq's exact (undocumented) on_demand-tier request cap.
-    private const int MaxPromptTokens = 6000;
+    // Groq's on_demand tier meters *tokens per minute*, counting a request's prompt plus its
+    // reserved max_completion_tokens together. Observed verbatim from a real 15-step flow:
+    //
+    //   HTTP 413: Request too large for model `openai/gpt-oss-120b` ... service tier
+    //   `on_demand` on tokens per minute (TPM): Limit 8000, Requested 17296
+    //
+    // Note what this is *not*, because both were assumed at different points and both are
+    // wrong: it is not the model's context window (gpt-oss-120b holds 131,072 tokens), and it
+    // is not a per-request byte cap. It is an account allowance, so the ceiling moves with the
+    // plan rather than the model — and a single request over the whole per-minute budget can
+    // never succeed no matter how long we wait.
+    //
+    // Worth knowing when tuning: ReferenceBundleBuilder's fixed parts (support API + gold
+    // sample + csproj + the deterministic reference implementation) already cost ~4,000 tokens
+    // before a single captured step is added, and CompletionTokenBudget reserves 6,000 more —
+    // so on this tier the headroom for an actual flow is very small, and shrinking the bundle
+    // is the only lever that widens it.
+    // A default, not a law: this is an account allowance, so it moves with the Groq plan
+    // rather than with the code. Overridable through the constructor for exactly that reason
+    // — and because a tighter budget than the assembled bundle needs makes the AI path
+    // unreachable, which the tests need to be able to opt out of.
+    public const int DefaultMaxRequestTokens = 8_000;
 
     // No tokenizer dependency: chars/4 is the standard rough heuristic for English text and
     // is good enough to gate against a request that's an order of magnitude too large,

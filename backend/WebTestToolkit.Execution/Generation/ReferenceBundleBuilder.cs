@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using WebTestToolkit.CodeGenerator;
 using WebTestToolkit.Contracts.Models;
@@ -19,6 +20,14 @@ public class ReferenceBundleBuilder
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
     };
 
+    // Dropped from the flow JSON before it reaches the codegen prompt. Both fields exist to
+    // give the *label-suggestion and assertion-inference* prompts enough DOM context during
+    // Inspect (see CapturedElement) — by the time codegen runs, those labels are already
+    // chosen and sitting in TestStep.Label, so here the raw HTML is pure prompt weight. It is
+    // also by far the largest per-step contributor: a real captured flow's snippets are what
+    // pushed one request past Groq's request-size limit into a 413.
+    private static readonly string[] PromptOmittedElementFields = ["outerHtmlSnippet", "ancestorContext"];
+
     private static readonly string[] SupportFiles =
         ["Support/LocatorRepository.cs", "Support/DriverContext.cs", "Support/Hooks.cs"];
 
@@ -36,7 +45,7 @@ public class ReferenceBundleBuilder
 
         return new ScriptGenerationInput(
             FlowName: flow.Name,
-            FlowJson: JsonSerializer.Serialize(flow, FlowJsonOptions),
+            FlowJson: SerializeFlowForPrompt(flow),
             ProjectFile: ReadIfExists(Path.Combine(projectDir, "WebTestToolkit.GeneratedTests.csproj")) ?? "",
             SupportApi: Concatenate(projectDir, SupportFiles),
             GoldSample: Concatenate(projectDir, GoldSampleFiles),
@@ -161,6 +170,47 @@ public class ReferenceBundleBuilder
             builder.AppendLine();
         }
         return builder.ToString();
+    }
+
+    // The captured flow as the codegen prompt sees it: everything TestFlow carries, minus the
+    // raw-DOM fields in PromptOmittedElementFields. Serializing and then pruning the tree
+    // (rather than projecting onto a hand-written prompt-shaped record) keeps this a
+    // subtraction — a field added to CapturedElement later reaches the model automatically,
+    // and only these two are ever deliberately withheld.
+    public static string SerializeFlowForPrompt(TestFlow flow)
+    {
+        var node = JsonSerializer.SerializeToNode(flow, FlowJsonOptions);
+        if (node is null)
+            return JsonSerializer.Serialize(flow, FlowJsonOptions);
+
+        RemoveOmittedFields(node);
+        return node.ToJsonString(FlowJsonOptions);
+    }
+
+    // Matches on name alone, at any depth and in either casing, rather than walking a fixed
+    // steps[].element[] path — the serializer's property-naming policy is then irrelevant, and
+    // both names are distinctive enough to TestFlow that nothing else can collide with them.
+    private static void RemoveOmittedFields(JsonNode? node)
+    {
+        switch (node)
+        {
+            case JsonObject obj:
+                var omitted = obj
+                    .Select(property => property.Key)
+                    .Where(key => PromptOmittedElementFields.Contains(key, StringComparer.OrdinalIgnoreCase))
+                    .ToList();
+                foreach (var key in omitted)
+                    obj.Remove(key);
+
+                foreach (var property in obj.ToList())
+                    RemoveOmittedFields(property.Value);
+                break;
+
+            case JsonArray array:
+                foreach (var item in array)
+                    RemoveOmittedFields(item);
+                break;
+        }
     }
 
     private static string? ReadIfExists(string path) => File.Exists(path) ? File.ReadAllText(path) : null;
