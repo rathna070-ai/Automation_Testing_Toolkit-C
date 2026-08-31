@@ -29,7 +29,13 @@ public class ReferenceBundleBuilderTests
                     VisibleText = "Username",
                     Placeholder = "Enter your username",
                     Required = true,
-                    Candidates = [new LocatorCandidate("id", "username", 100)],
+                    // A losing candidate alongside the winner: only the winner should
+                    // survive into the digest (P18 item 3).
+                    Candidates =
+                    [
+                        new LocatorCandidate("xpath", "//input[@id='username']", 40),
+                        new LocatorCandidate("id", "username", 100)
+                    ],
                     OuterHtmlSnippet = "<input id=\"username\" class=\"form-control input-lg\" type=\"text\" />",
                     AncestorContext = "<form id=\"login\"><div class=\"row\">…</div></form>"
                 }
@@ -55,8 +61,36 @@ public class ReferenceBundleBuilderTests
         });
     }
 
-    // The trim is a subtraction of exactly two fields — everything the model actually needs
-    // to name a step, pick a locator and understand the element must survive it.
+    // P18 item 3: the model is handed the already-ranked winner (CapturedElement.BestLocator),
+    // not the raw candidate list it previously had to re-rank itself.
+    [Test]
+    public void SerializeFlowForPrompt_KeepsOnlyTheWinningLocatorCandidate()
+    {
+        var json = ReferenceBundleBuilder.SerializeFlowForPrompt(FlowWithCapturedDom());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(json, Does.Contain("\"Strategy\": \"id\""),
+                "The winning candidate (score 100) must survive.");
+            Assert.That(json, Does.Not.Contain("xpath"),
+                "The losing candidate (score 40) must not reach the prompt.");
+            Assert.That(json, Does.Not.Contain("//input[@id='username']"));
+        });
+    }
+
+    // A per-step digest exposes the same method name GherkinStepPlanner/LocatorJsonGenerator
+    // compute for the deterministic path, so an AI-generated name doesn't drift from what the
+    // reference implementation shown alongside it actually uses.
+    [Test]
+    public void SerializeFlowForPrompt_IncludesTheDeterministicMethodName()
+    {
+        var json = ReferenceBundleBuilder.SerializeFlowForPrompt(FlowWithCapturedDom());
+
+        Assert.That(json, Does.Contain("\"MethodName\": \"ITypeTheProbeUserName\""));
+    }
+
+    // The trim is a subtraction — everything the model actually needs to name a step, pick a
+    // locator and understand the element must survive it.
     [Test]
     public void SerializeFlowForPrompt_KeepsEverythingElse()
     {
@@ -83,11 +117,11 @@ public class ReferenceBundleBuilderTests
         var untrimmed = System.Text.Json.JsonSerializer.Serialize(flow);
 
         Assert.That(trimmed.Length, Is.LessThan(untrimmed.Length),
-            "Dropping the raw DOM fields must actually reduce the prompt's flow section.");
+            "Dropping the raw DOM fields and losing candidates must actually reduce the prompt's flow section.");
     }
 
     // A step with no captured element at all (a Navigate step) must not throw on the way
-    // through the pruner.
+    // through the digest builder.
     [Test]
     public void SerializeFlowForPrompt_HandlesAStepWithNoElement()
     {

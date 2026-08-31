@@ -161,12 +161,11 @@ issues" button (P5's repair loop already automates that). The five genuinely new
 
 | Phase | Adds | Acceptance |
 |---|---|---|
-| **P18** | Generation reliability — closes the three causes behind the observed high generation-failure rate | A normal-sized flow reaches the model again, and the deterministic path is validated, not just compiled |
 | **P19** | Flow persistence and regeneration — a recorded `TestFlow` survives the session, the process, and the tab | Record a flow, restart the API, reload and regenerate it without re-recording |
 | **P20** | Parallel-safe generated suite (+ green CI) | `reqnroll.json` enables scenario-level parallelism without shared-state corruption, and `dotnet test` on the solution is green again |
 | **P21** | Assertion quality — the generated tests actually pin behaviour down, not just the absence of an obvious failure | `WTT151` rejects a tautological assertion, and a scheduled Stryker.NET run scores the rule layer |
 
-P16 and P17 are implemented — see the table above. §6 below still narrates them in the risk ledger's
+P16, P17, and P18 are implemented — see the table above and §P18's own item-by-item list. §6 below still narrates them in the risk ledger's
 own voice (what was open, what closed it), and this section keeps both subsections as the permanent
 build record, same as P5's `PageObjectMerger` narrative stays inline rather than being deleted once
 shipped.
@@ -320,8 +319,9 @@ than spending a round trip to collect a 413. The allowance is a constructor para
 (`DefaultMaxRequestTokens = 8_000`) precisely because it tracks the plan, not the code.
 `ReferenceBundleBuilder.SerializeFlowForPrompt` also now drops `OuterHtmlSnippet` and
 `AncestorContext` from the flow JSON — they exist for the Inspect-time label/assertion prompts and
-are pure weight once the labels are chosen. Shrinking the bundle further (P18 item 3) is the only
-remaining lever that widens the AI path on this tier.
+are pure weight once the labels are chosen — and (P18 item 3) replaces each element's raw
+`Candidates` list with just the winning `BestLocator`. Both are the same lever: sending fewer,
+already-decided facts rather than raw material for the model to re-derive from.
 
 1. **Validate the deterministic path, not just compile it** — *implemented*; recorded here because
    it is the finding, not a leftover.
@@ -347,15 +347,23 @@ remaining lever that widens the AI path on this tier.
    use `Options` for the Gherkin example value and `Checked` to choose Check vs Uncheck.
    `Contracts/Models/ActionType.cs`, `CodeGenerator/{PageObjectGenerator,GherkinStepPlanner,StepsGenerator}.cs`,
    plus the Inspect-side capture that assigns the action type.
-3. **Digest-shaped prompt** — the extension pre-computes `analyzedElements` (method name + action +
-   real element state) and `recommendedLocators` (ranked strategy + score) and hands the model
-   conclusions. We ship the raw `Candidates` array and let it re-derive a ranking
-   `CapturedElement.BestLocator` has already computed. Replacing the array with a per-step digest is
-   both smaller and easier for the model. Reuses `BestLocator` and `Naming.ToPascalCaseIdentifier`.
-   `backend/WebTestToolkit.Execution/Generation/ReferenceBundleBuilder.cs`.
+3. **Digest-shaped prompt** — *implemented*. The extension pre-computes `analyzedElements` (method
+   name + action + real element state) and `recommendedLocators` (ranked strategy + score) and hands
+   the model conclusions. We used to ship the raw `Candidates` array and let it re-derive a ranking
+   `CapturedElement.BestLocator` had already computed.
+   `ReferenceBundleBuilder.SerializeFlowForPrompt` now builds a per-step `FlowStepDigest` from
+   `GherkinStepPlanner.Plan` instead of serializing the raw `TestFlow`: each step carries the same
+   `PageName`/`LocatorKey`/`MethodName` (`PageObjectMethodName`, built on
+   `Naming.ToPascalCaseIdentifier`) the deterministic path itself uses, and each element carries a
+   single `RecommendedLocator` — `CapturedElement.BestLocator`, not the full `Candidates` list — plus
+   the real-state fields (`Options`/`Checked`/`Required`/`MaxLength`). This drops every losing
+   candidate from the prompt and hands the model the same names the reference implementation uses,
+   instead of a raw label to re-derive one from. It shrinks the *marginal*, per-step cost; it does not
+   touch the ~4,000-token *fixed* floor (support API + gold sample + csproj + reference
+   implementation), so it does not by itself make the free-tier AI path reachable — see Known risks
+   §6. `backend/WebTestToolkit.Execution/Generation/ReferenceBundleBuilder.cs`.
 
-Build order: 1 first and alone — it is a correctness gap in the safety net and independent of the
-other two.
+All three P18 items are now implemented.
 
 #### P19–P21 — from an external review of the approach
 
@@ -382,8 +390,9 @@ that today it can't, which is P19.
 8,000 TPM (the number `DefaultMaxRequestTokens` encodes, and the reason §P18's preamble concludes the
 AI path is unreachable). Groq's **Developer tier is a free upgrade** — card on file, pay-per-token —
 at roughly 250,000–300,000 TPM, ~30× more. At $0.15/M input and $0.60/M output, a 15-step flow's
-~17K tokens costs about **half a cent**. No amount of bundle-shrinking (P18 item 3) achieves on 8K
-TPM what this achieves immediately.
+~17K tokens costs about **half a cent**. No amount of bundle-shrinking (P18 item 3, now implemented)
+achieves on 8K TPM what this achieves immediately — the digest shrinks the per-step marginal cost,
+not the ~4,000-token fixed floor that alone already crowds out the 8,000-token budget.
 
 **P19 — flow persistence and regeneration.** A recorded flow is never saved anywhere:
 `GET /api/inspect/{id}/flow` reads the *live in-memory session*, `InspectorSessionManager` evicts
@@ -463,12 +472,11 @@ prompt-cap regression from the prior session (a wrong number, not a wrong design
 BOM (a correct-looking round-trip test that happened to hide the exact asymmetry it should have
 caught). Neither would have been visible from build-clean-plus-tests-green alone.
 
-P18 item 1 (validate the deterministic path) is also already implemented — see its own list entry
-above — leaving only the not-yet-built work below.
+P18 is now fully implemented (all three items) — see its own list entries above — leaving only the
+not-yet-built work below.
 
 | Phase | Effort (hrs) | Model |
 |---|---|---|
-| **P18** — items 2/3 | 2–4 | Sonnet 5 (item 2 crosses contract + generators + capture; item 3 is a prompt-shape change with a measurable size target) |
 | **P19** — flow persistence | 3–5 | Sonnet 5 (new store + 3 endpoints + a UI list, but `FileSettingsStore` is a close template to copy) |
 | **P20** — parallel-safe suite + green CI | 2–4 | Sonnet 5 (the `ConcurrentDictionary` fix is trivial; proving parallelism actually holds against a real browser is the work) |
 | **P21** — assertion quality | 3–5 | Sonnet 5 (deepening `WTT151` is real analysis, not a substring swap; Stryker wiring is mechanical but its first run needs interpreting) |
@@ -645,15 +653,16 @@ ledger). The actionable gaps are packaged as **P16** in §2's roadmap.
    minute, counting prompt plus reserved completion together. The guard now measures the whole
    request against that allowance (`DefaultMaxRequestTokens`, a constructor parameter because it
    tracks the Groq plan rather than the code), and `SerializeFlowForPrompt` drops
-   `OuterHtmlSnippet`/`AncestorContext` so the saving comes from sending less rather than from
-   refusing to call. **Still open, and the honest headline:** on the free tier the 6,000-token
-   completion reservation plus `ReferenceBundleBuilder`'s ~4,000-token fixed floor exhausts the 8,000
-   budget before any captured step is added, so the AI path is unreachable there and every generation
-   is deterministic — shrinking the bundle (**P18 item 3**) or upgrading the plan are the only levers.
-   **Of those two, upgrading is by far the better one and is effectively free**: Groq's Developer
-   tier is a no-cost upgrade (card on file, pay-per-token) at ~250,000–300,000 TPM, ~30× the free
-   tier's 8,000, and at $0.15/M input + $0.60/M output a 15-step flow's ~17K tokens costs about half
-   a cent. Recommended before building P18 item 3, which cannot reach the same result on 8K TPM.
+   `OuterHtmlSnippet`/`AncestorContext` and (P18 item 3, now implemented) every locator candidate but
+   the winning `BestLocator`, so the saving comes from sending less rather than from refusing to
+   call. **Still open, and the honest headline:** even with P18 item 3 done, on the free tier the
+   6,000-token completion reservation plus `ReferenceBundleBuilder`'s ~4,000-token fixed floor
+   (support API + gold sample + csproj + reference implementation — none of which the digest touches)
+   exhausts the 8,000 budget before any captured step is added, so the AI path is unreachable there
+   and every generation is deterministic. Upgrading the Groq plan is the only remaining lever.
+   **It is by far the better one and is effectively free**: Groq's Developer tier is a no-cost
+   upgrade (card on file, pay-per-token) at ~250,000–300,000 TPM, ~30× the free tier's 8,000, and at
+   $0.15/M input + $0.60/M output a 15-step flow's ~17K tokens costs about half a cent.
    The *redundant*-call case (clicking Preview twice on an unchanged flow) is separately open →
    **P16 item 4**.
 7. **Auto-heal scope (P12)** — handles "same element, changed locator" only; structural page

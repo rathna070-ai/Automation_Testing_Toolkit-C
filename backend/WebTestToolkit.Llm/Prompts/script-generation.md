@@ -23,6 +23,11 @@ lines are prose, not identifiers, and may use the flow's name verbatim.
 Locators go in the `locators` array of your response, **not** into a file. The toolkit
 serializes them itself.
 
+Each step in the `<flow>` carries a `methodName` — the same mechanical, transliterated name the
+reference implementation uses for that step. It is a fallback, not a target: name methods for
+what they do (see "Where you should improve on the reference implementation" below), and only
+fall back to `methodName` when you are unsure.
+
 Each captured element in the `<flow>` may carry real state — `options` (a `<select>`'s actual
 option list), `checked` (a checkbox/radio's current state), `required`, `maxLength`. When present,
 use it instead of guessing from `outerHtmlSnippet`: pick an option's real `value` for a dropdown
@@ -48,8 +53,9 @@ element whose `options` array is present — that means it's a `<select>`, which
    selector silently breaks that for the element it touches.
 5. **Only four strategies exist**: `id`, `css`, `xpath`, `name`. `LocatorRepository.ToBy`
    throws on anything else, and it throws at *runtime*, where the compiler cannot catch it.
-6. **Prefer the locator candidates supplied in the flow.** When choosing among them, prefer
-   `id` > `name` > `css` > `xpath` — earlier ones survive page changes better.
+6. **Use the `recommendedLocator` supplied for each element in the flow.** It is already the
+   best-ranked candidate (`id` > `name` > `css` > `xpath`) — do not invent a different selector
+   or strategy for an element that has one.
 7. **Every locator key a page object uses must appear in `locators`**, and every page object
    that calls `LocatorRepository.Load("X")` must have at least one locator with `page` = `X`.
 8. **Do not create a step whose binding pattern duplicates or ambiguously overlaps** any
