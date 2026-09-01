@@ -24,12 +24,12 @@ public class CartPage
 
     public void IClickThe1SauceLabsBackpackcarryAllTheThings()
     {
-        FindVisible("_1SauceLabsBackpackcarryAllTheThingsElement").Click();
+        ClickSafely(FindVisible("_1SauceLabsBackpackcarryAllTheThingsElement"), "_1SauceLabsBackpackcarryAllTheThingsElement");
     }
 
     public void IClickTheQtydescription1SauceLabsBackpackcarry()
     {
-        FindVisible("QTYDescription1SauceLabsBackpackcarryElement").Click();
+        ClickSafely(FindVisible("QTYDescription1SauceLabsBackpackcarryElement"), "QTYDescription1SauceLabsBackpackcarryElement");
     }
 
     private IWebElement FindVisible(string locatorKey)
@@ -41,5 +41,27 @@ public class CartPage
             var element = driver.FindElement(by);
             return element.Displayed ? element : null;
         });
+    }
+
+    private void ClickSafely(IWebElement element, string locatorKey)
+    {
+        try
+        {
+            element.Click();
+        }
+        catch (ElementClickInterceptedException ex)
+        {
+            throw new InvalidOperationException(
+                $"Could not click '{locatorKey}': something on the page is covering it " +
+                "(a cookie banner, consent dialog or modal is the usual cause). " +
+                $"Selenium said: {ex.Message}", ex);
+        }
+        catch (UnhandledAlertException ex)
+        {
+            throw new InvalidOperationException(
+                $"Could not click '{locatorKey}': the page has an open dialog saying " +
+                $"\"{ex.AlertText}\". This flow does not handle dialogs — re-record it " +
+                "including the dialog, or stop the page raising it.", ex);
+        }
     }
 }

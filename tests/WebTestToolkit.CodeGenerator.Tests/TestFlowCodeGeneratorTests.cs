@@ -121,7 +121,9 @@ public class TestFlowCodeGeneratorTests
         Assert.That(page, Does.Contain("public void NavigateTo()"));
         Assert.That(page, Does.Contain("FindVisible(\"UsernameInput\")"));
         Assert.That(page, Does.Contain("FindVisible(\"PasswordInput\")"));
-        Assert.That(page, Does.Contain("FindVisible(\"LoginButton\").Click();"));
+        // Clicks route through ClickSafely since P24, so an overlay or an open dialog fails
+        // with an explanation naming the element rather than a bare Selenium exception type.
+        Assert.That(page, Does.Contain("ClickSafely(FindVisible(\"LoginButton\"), \"LoginButton\");"));
         Assert.That(page, Does.Contain("FindVisible(\"FlashMessage\").Text;"));
         Assert.That(page, Does.Contain("private IWebElement FindVisible(string locatorKey)"));
     }
@@ -318,5 +320,79 @@ public class TestFlowCodeGeneratorTests
                 Does.Contain("public void WhenIChooseTheCountryDropdown(string value)"));
             Assert.That(files["Steps/SignupSteps.cs"], Does.Contain("(value);"));
         });
+    }
+
+    // --- Popup / overlay diagnostics (P24) -------------------------------------------------
+
+    [Test]
+    public void ClicksGoThroughClickSafely_NotRawClick()
+    {
+        var page = TestFlowCodeGenerator.Generate(BuildLoginFlow())["PageObjects/LoginPage.cs"];
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(page, Does.Contain("private void ClickSafely(IWebElement element, string locatorKey)"));
+            Assert.That(page, Does.Contain("ClickSafely(FindVisible("));
+
+            // A bare .Click() would bypass the diagnostics entirely. The only Click() left
+            // should be the one inside ClickSafely itself.
+            Assert.That(CountOccurrences(page, "element.Click();"), Is.EqualTo(1));
+        });
+    }
+
+    // Selenium's own ElementClickInterceptedException names neither the step nor what covered
+    // it, so a cookie banner reads as an unrelated mystery. Same for a stray alert(), which
+    // surfaces on whatever command runs next.
+    [Test]
+    public void ClickSafely_ExplainsAnOverlayAndAnOpenDialog()
+    {
+        var page = TestFlowCodeGenerator.Generate(BuildLoginFlow())["PageObjects/LoginPage.cs"];
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(page, Does.Contain("catch (ElementClickInterceptedException"));
+            Assert.That(page, Does.Contain("is covering it"));
+
+            Assert.That(page, Does.Contain("catch (UnhandledAlertException"));
+            Assert.That(page, Does.Contain("ex.AlertText"));
+
+            // Caught, not handled: the overlay is never dismissed and the dialog never
+            // answered, because either would let a step report success it did not earn.
+            Assert.That(page, Does.Not.Contain("SwitchTo().Alert().Accept()"));
+            Assert.That(page, Does.Not.Contain("SwitchTo().Alert().Dismiss()"));
+        });
+    }
+
+    [Test]
+    public void CheckboxClick_AlsoGoesThroughClickSafely()
+    {
+        var flow = BuildLoginFlow();
+        flow.Steps[1].ActionType = ActionType.Click;
+        flow.Steps[1].Label = "I tick the remember me";
+        flow.Steps[1].Element = new CapturedElement
+        {
+            TagName = "input",
+            Type = "checkbox",
+            Id = "remember",
+            Checked = true,
+            Candidates = [new LocatorCandidate("id", "remember", 100)]
+        };
+
+        var page = TestFlowCodeGenerator.Generate(flow)["PageObjects/LoginPage.cs"];
+
+        Assert.That(page, Does.Contain("ClickSafely(element,"),
+            "The idempotent checkbox path clicks too, so it needs the same diagnostics.");
+    }
+
+    private static int CountOccurrences(string haystack, string needle)
+    {
+        var count = 0;
+        var index = 0;
+        while ((index = haystack.IndexOf(needle, index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += needle.Length;
+        }
+        return count;
     }
 }

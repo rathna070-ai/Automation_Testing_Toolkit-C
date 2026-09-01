@@ -74,7 +74,7 @@ project references to the toolkit at all, by design, so it stays runnable standa
 
 ## 2. Current status
 
-### Implemented — P1 through P23
+### Implemented — P1 through P24
 
 | Phase | Delivers | Key files |
 |---|---|---|
@@ -100,24 +100,31 @@ project references to the toolkit at all, by design, so it stays runnable standa
 | **P19a** | The three highest-impact fixes from the external review: the Groq plan's tokens-per-minute allowance is a **setting** (`AppSettings.GroqTokensPerMinute`, read per call) rather than a constant, so upgrading the plan takes effect without a rebuild; a recorded `<select>` now generates `SelectElement.SelectByText` instead of `Clear()+SendKeys()`, which threw `InvalidElementStateException` on every flow containing a dropdown; and generated binding classes carry `[Scope(Feature = "...")]`, so two flows recorded against the same site no longer collide as ambiguous step definitions — previously a hard block on generating a second flow per site. Two bugs surfaced only by live testing: the generation cache keyed without the allowance (so raising it replayed a stale "plan too small" result) and `PersistedSettingsFile` silently dropped the new field on save | `Contracts/Models/{AppSettings,ActionType}.cs`, `CodeGenerator/{PageObjectGenerator,StepsGenerator,GherkinStepPlanner}.cs`, `Execution/Generation/{HybridTestCodeGenerator,BindingIndex,GenerationResultCache}.cs`, `Inspector/Overlay/inspector-overlay.js`, `Api/Services/FileSettingsStore.cs` |
 | **P17** | Export generated script files — `POST /api/export/generated-files/zip` zips whichever file set (`files`/`deterministicFiles`) the frontend already holds in memory, one entry per `GeneratedFile.RelativePath`, no regeneration triggered. Caught live during verification: the first version emitted a UTF-8 BOM per entry (`Encoding.UTF8`'s default preamble) that `File.WriteAllText` — what a real Generate actually writes with — never emits; fixed to an explicit no-BOM encoding and pinned with a dedicated regression test | `Export/GeneratedFilesZipWriter.cs`, `Api/Controllers/ExportController.cs`, `frontend/src/api/client.ts`, `frontend/src/pages/FlowsPage.tsx` |
 
-**Verified:** 220/220 backend tests, Debug + Release clean with **0 warnings**. P23's decisive
+| **P24** | Browser popups and dialogs. A real recording was blocked by Chrome's “Change your password — found in a data breach” bubble: browser chrome, not page DOM, so Selenium can neither see nor dismiss it. The cause was `profile.password_manager_leak_detection`, a **separate** preference from the two obvious password ones already set (Chromium 42323769, Selenium #13613). Investigating it surfaced the worse defect: the two drivers were not the same browser — `InspectorSession` applied six hardening options and `DriverContext`, which every generated test runs under, applied one, so you recorded in a hardened Chrome and replayed in a bare one. Both now apply an identical `ApplyPopupSuppression` (password manager incl. leak detection, autofill, notifications, popup blocker, first-run/default-browser/crash-restore/search-engine-choice screens — the crash bubble made likelier by P16's Job Object, which kills Chrome rather than closing it). They cannot share a class, since `GeneratedTests` deliberately has zero project references, so `ChromeOptionsParityTests` reads both files as text and fails if either loses a setting the other keeps — the trick `OverlayContractTests` already uses. Both drivers also set `UnhandledPromptBehavior.Ignore`, and generated page objects route every click through an emitted `ClickSafely` that turns `ElementClickInterceptedException` and `UnhandledAlertException` into a message naming the locator and the dialog's own text. It **catches rather than handles**: an overlay is not dismissed and a dialog is not answered, because either would let a scenario report success for a step it never performed | `Inspector/InspectorSession.cs`, `tests/WebTestToolkit.GeneratedTests/Support/{DriverContext,PopupBehaviorTests}.cs`, `tests/WebTestToolkit.Inspector.Tests/ChromeOptionsParityTests.cs`, `CodeGenerator/PageObjectGenerator.cs` |
+
+**Verified:** 226/226 backend tests, Debug + Release clean with **0 warnings**. P23's decisive
 check was not a unit test: the wrong-flow bug lived entirely in how a page was *reached*, so it was
 verified by exporting `test445` and confirming all 13 of its real steps appear with no sample
 wording, and by exporting it with an edge case ticked and getting TC-001 recorded + TC-002 edgeCase
 — the path that existed server-side since P22 but no UI could reach.
 
-Plus 5/5 opt-in `[Category("Browser")]` real-Chrome tests. Running those by hand caught a stale
+Plus 7/7 opt-in `[Category("Browser")]` real-Chrome tests — the 5 Inspector ones plus P24's two,
+which pin the exception *types* `ClickSafely` catches by name. No unit test can do that: if Chrome
+surfaced an intercepted click or an open dialog as some other type, those catch blocks would be dead
+code and the diagnostics would silently never fire. Running the opt-in set by hand also caught a stale
 assertion no automated run would have: `CapturesRealElementStateForSelectCheckboxAndMaxLength` still
 expected a `<select>` to arrive as `ActionType.Type`, which is the pre-P22 behaviour that generated
 `Clear()+SendKeys()` and threw at runtime. The test was asserting the bug. Being `[Explicit]`, it sat
 outside both the default run and CI, so P22 changed select handling without it ever being exercised
 — a reminder that an opt-in suite needs running deliberately when the code it covers changes.
 
-The `@liveSite` suites are excluded from CI by design and currently 1/3: `NertFlow` asserts an error
-element after a *successful* login, and `Test445Flow` completes all 13 steps then fails on a brittle
-`#cart_contents_container > div` selector. Both are recording-quality problems — the second is
-precisely what Auto-heal exists for — not toolkit defects. — *fewer than P21's 225 by design*: retiring the LLM codegen
-path deleted the ~20 tests covering its attempt/repair/fallback loop, and P22 added new ones for
+The `@liveSite` suites are excluded from CI by design and currently 2/3: `NertFlow` still asserts a
+`[data-test="error"]` element after a *successful* login, so it times out in `FindVisible`. That is a
+recording-quality problem, not a toolkit defect — and note the shape of the failure, an element
+lookup rather than an intercepted click or a dialog, which is how it is known P24 neither caused nor
+masked it.
+
+The backend count is *fewer than P21's 225 by design*: retiring the LLM codegen path deleted the ~20 tests covering its attempt/repair/fallback loop, and P22 added new ones for
 run-level triage and the export schema. The decisive check for P22 was not a unit test but an
 offline one: with the Groq API key cleared, record → generate → run completes end to end with no
 fallback message and no degraded path. (plus 5/5 opt-in `[Category("Browser")]` real-Chrome tests —

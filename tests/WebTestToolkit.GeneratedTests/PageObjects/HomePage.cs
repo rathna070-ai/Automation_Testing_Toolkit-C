@@ -24,7 +24,7 @@ public class HomePage
 
     public void IClickTheUserName()
     {
-        FindVisible("UserNameInput").Click();
+        ClickSafely(FindVisible("UserNameInput"), "UserNameInput");
     }
 
     public void IEnterTheUserName(string value)
@@ -36,7 +36,7 @@ public class HomePage
 
     public void IClickThePassword()
     {
-        FindVisible("PasswordInput").Click();
+        ClickSafely(FindVisible("PasswordInput"), "PasswordInput");
     }
 
     public void IEnterThePassword(string value)
@@ -48,7 +48,7 @@ public class HomePage
 
     public void IClickTheLoginButtonButton()
     {
-        FindVisible("LoginButton").Click();
+        ClickSafely(FindVisible("LoginButton"), "LoginButton");
     }
 
     private IWebElement FindVisible(string locatorKey)
@@ -64,26 +64,48 @@ public class HomePage
 
     public void IClickTheEpicSadfaceUsernameAndPasswordDoN()
     {
-        FindVisible("EpicSadfaceUsernameAndPasswordDoNElement").Click();
+        ClickSafely(FindVisible("EpicSadfaceUsernameAndPasswordDoNElement"), "EpicSadfaceUsernameAndPasswordDoNElement");
     }
 
     public void IClickThePath()
     {
-        FindVisible("PathElement").Click();
+        ClickSafely(FindVisible("PathElement"), "PathElement");
     }
 
     public void IClickTheEpicSadfaceUsernameAndPasswordDoN2()
     {
-        FindVisible("EpicSadfaceUsernameAndPasswordDoNElement2").Click();
+        ClickSafely(FindVisible("EpicSadfaceUsernameAndPasswordDoNElement2"), "EpicSadfaceUsernameAndPasswordDoNElement2");
     }
 
     public void IClickTheLoginButtonButton2()
     {
-        FindVisible("LoginButton2").Click();
+        ClickSafely(FindVisible("LoginButton2"), "LoginButton2");
     }
 
     public void IClickThePassword2()
     {
-        FindVisible("PasswordInput2").Click();
+        ClickSafely(FindVisible("PasswordInput2"), "PasswordInput2");
+    }
+
+    private void ClickSafely(IWebElement element, string locatorKey)
+    {
+        try
+        {
+            element.Click();
+        }
+        catch (ElementClickInterceptedException ex)
+        {
+            throw new InvalidOperationException(
+                $"Could not click '{locatorKey}': something on the page is covering it " +
+                "(a cookie banner, consent dialog or modal is the usual cause). " +
+                $"Selenium said: {ex.Message}", ex);
+        }
+        catch (UnhandledAlertException ex)
+        {
+            throw new InvalidOperationException(
+                $"Could not click '{locatorKey}': the page has an open dialog saying " +
+                $"\"{ex.AlertText}\". This flow does not handle dialogs — re-record it " +
+                "including the dialog, or stop the page raising it.", ex);
+        }
     }
 }

@@ -62,12 +62,49 @@ public static class PageObjectGenerator
             sb.AppendLine("            return element.Displayed ? element : null;");
             sb.AppendLine("        });");
             sb.AppendLine("    }");
+            sb.AppendLine();
+            AppendClickSafely(sb);
             sb.AppendLine("}");
 
             results.Add(new GeneratedPageObject(pageGroup.Key, sb.ToString()));
         }
 
         return results;
+    }
+
+    // Selenium reports a click blocked by an overlay as ElementClickInterceptedException, and
+    // an open JS dialog as UnhandledAlertException on whatever command happens to run next.
+    // Both name neither the step nor the cause, so a cookie banner or a stray alert() reads as
+    // an unrelated mystery failure. Rethrowing with the locator key — and, for a dialog, its
+    // actual text — turns each into something a person can act on, and gives the failure
+    // analysis skill real material instead of a bare exception type.
+    //
+    // Note this catches rather than *handles*: an overlay is not dismissed and a dialog is not
+    // answered. Silently clicking past either would let a scenario report success for a step it
+    // never really performed.
+    private static void AppendClickSafely(StringBuilder sb)
+    {
+        sb.AppendLine("    private void ClickSafely(IWebElement element, string locatorKey)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        try");
+        sb.AppendLine("        {");
+        sb.AppendLine("            element.Click();");
+        sb.AppendLine("        }");
+        sb.AppendLine("        catch (ElementClickInterceptedException ex)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            throw new InvalidOperationException(");
+        sb.AppendLine("                $\"Could not click '{locatorKey}': something on the page is covering it \" +");
+        sb.AppendLine("                \"(a cookie banner, consent dialog or modal is the usual cause). \" +");
+        sb.AppendLine("                $\"Selenium said: {ex.Message}\", ex);");
+        sb.AppendLine("        }");
+        sb.AppendLine("        catch (UnhandledAlertException ex)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            throw new InvalidOperationException(");
+        sb.AppendLine("                $\"Could not click '{locatorKey}': the page has an open dialog saying \" +");
+        sb.AppendLine("                $\"\\\"{ex.AlertText}\\\". This flow does not handle dialogs — re-record it \" +");
+        sb.AppendLine("                \"including the dialog, or stop the page raising it.\", ex);");
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
     }
 
     private static void AppendActionMethod(StringBuilder sb, StepPlan plan)
@@ -106,14 +143,14 @@ public static class PageObjectGenerator
                 sb.AppendLine("    {");
                 sb.AppendLine($"        var element = FindVisible(\"{plan.LocatorKey}\");");
                 sb.AppendLine($"        if (element.Selected != {(desired ? "true" : "false")})");
-                sb.AppendLine("            element.Click();");
+                sb.AppendLine($"            ClickSafely(element, \"{plan.LocatorKey}\");");
                 sb.AppendLine("    }");
                 break;
 
             case ActionType.Click:
                 sb.AppendLine($"    public void {plan.PageObjectMethodName}()");
                 sb.AppendLine("    {");
-                sb.AppendLine($"        FindVisible(\"{plan.LocatorKey}\").Click();");
+                sb.AppendLine($"        ClickSafely(FindVisible(\"{plan.LocatorKey}\"), \"{plan.LocatorKey}\");");
                 sb.AppendLine("    }");
                 break;
 

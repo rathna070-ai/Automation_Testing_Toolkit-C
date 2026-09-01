@@ -69,11 +69,15 @@ guarantee:
 
 | Category | What it is | Run it with |
 |---|---|---|
-| `Browser` | The 5 Inspector tests that drive a real Chrome window. Marked `[Explicit]`, so a plain `dotnet test` already skips them. | `dotnet test tests/WebTestToolkit.Inspector.Tests --filter "Category=Browser"` |
+| `Browser` | The 7 tests that drive a real Chrome window — 5 Inspector capture tests, plus 2 that pin how Chrome reports an overlay-blocked click and an open JS dialog. Marked `[Explicit]`, so a plain `dotnet test` already skips them. | `dotnet test WebTestToolkit.sln --filter "Category=Browser"` |
 | `liveSite` | Generated suites recorded against real third-party sites, whose result depends on those sites being up. | `dotnet test tests/WebTestToolkit.GeneratedTests --filter "Category=liveSite"` |
 
 Everything else runs unattended, including the generated sample suite — it targets a local
 fixture server rather than the internet.
+
+Run the `Browser` set deliberately whenever you touch driver options or the generated page objects:
+it is the only place real Chrome behaviour is checked, and an `[Explicit]` suite that nobody runs is
+how a stale assertion once survived a whole phase.
 
 Mutation testing over the rule layer runs weekly in CI, not per-PR — see
 [docs/MUTATION-TESTING.md](docs/MUTATION-TESTING.md).

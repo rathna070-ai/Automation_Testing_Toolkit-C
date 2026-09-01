@@ -24,27 +24,27 @@ public class InventoryPage
 
     public void IClickTheInventoryContainer()
     {
-        FindVisible("InventoryContainerElement").Click();
+        ClickSafely(FindVisible("InventoryContainerElement"), "InventoryContainerElement");
     }
 
     public void IClickTheSauceLabsBackpackcarryAllTheThings()
     {
-        FindVisible("SauceLabsBackpackcarryAllTheThingsElement").Click();
+        ClickSafely(FindVisible("SauceLabsBackpackcarryAllTheThingsElement"), "SauceLabsBackpackcarryAllTheThingsElement");
     }
 
     public void IClickThe2999()
     {
-        FindVisible("_2999Element").Click();
+        ClickSafely(FindVisible("_2999Element"), "_2999Element");
     }
 
     public void IClickTheAddToCartSauceLabsBackpackButton()
     {
-        FindVisible("AddToCartSauceLabsBackpackButton").Click();
+        ClickSafely(FindVisible("AddToCartSauceLabsBackpackButton"), "AddToCartSauceLabsBackpackButton");
     }
 
     public void IClickThe1Link()
     {
-        FindVisible("_1Link").Click();
+        ClickSafely(FindVisible("_1Link"), "_1Link");
     }
 
     private IWebElement FindVisible(string locatorKey)
@@ -60,11 +60,33 @@ public class InventoryPage
 
     public void IClickTheAddToCartSauceLabsBikeLightButton()
     {
-        FindVisible("AddToCartSauceLabsBikeLightButton").Click();
+        ClickSafely(FindVisible("AddToCartSauceLabsBikeLightButton"), "AddToCartSauceLabsBikeLightButton");
     }
 
     public void IClickTheALink()
     {
-        FindVisible("ALink").Click();
+        ClickSafely(FindVisible("ALink"), "ALink");
+    }
+
+    private void ClickSafely(IWebElement element, string locatorKey)
+    {
+        try
+        {
+            element.Click();
+        }
+        catch (ElementClickInterceptedException ex)
+        {
+            throw new InvalidOperationException(
+                $"Could not click '{locatorKey}': something on the page is covering it " +
+                "(a cookie banner, consent dialog or modal is the usual cause). " +
+                $"Selenium said: {ex.Message}", ex);
+        }
+        catch (UnhandledAlertException ex)
+        {
+            throw new InvalidOperationException(
+                $"Could not click '{locatorKey}': the page has an open dialog saying " +
+                $"\"{ex.AlertText}\". This flow does not handle dialogs — re-record it " +
+                "including the dialog, or stop the page raising it.", ex);
+        }
     }
 }
