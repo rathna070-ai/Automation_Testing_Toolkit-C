@@ -22,14 +22,29 @@ public class CartPage
         _driver.Navigate().GoToUrl(_locators.Url);
     }
 
-    public void IClickThe1SauceLabsBackpackcarryAllTheThings()
+    public void IClickTheCartContentsContainer()
     {
-        ClickSafely(FindVisible("_1SauceLabsBackpackcarryAllTheThingsElement"), "_1SauceLabsBackpackcarryAllTheThingsElement");
+        ClickSafely(FindVisible("CartContentsContainerElement"), "CartContentsContainerElement");
     }
 
-    public void IClickTheQtydescription1SauceLabsBackpackcarry()
+    public void IClickTheCheckoutButton()
     {
-        ClickSafely(FindVisible("QTYDescription1SauceLabsBackpackcarryElement"), "QTYDescription1SauceLabsBackpackcarryElement");
+        ClickSafely(FindVisible("CheckoutButton"), "CheckoutButton");
+    }
+
+    public void IClickTheContinueShoppingButton()
+    {
+        ClickSafely(FindVisible("ContinueShoppingButton"), "ContinueShoppingButton");
+    }
+
+    public void IClickTheCartContentsContainer2()
+    {
+        ClickSafely(FindVisible("CartContentsContainerElement2"), "CartContentsContainerElement2");
+    }
+
+    public void IClickTheCheckoutButton2()
+    {
+        ClickSafely(FindVisible("CheckoutButton2"), "CheckoutButton2");
     }
 
     private IWebElement FindVisible(string locatorKey)
@@ -63,5 +78,15 @@ public class CartPage
                 $"\"{ex.AlertText}\". This flow does not handle dialogs — re-record it " +
                 "including the dialog, or stop the page raising it.", ex);
         }
+    }
+
+    public void IClickThe1SauceLabsBackpackcarryAllTheThings()
+    {
+        ClickSafely(FindVisible("_1SauceLabsBackpackcarryAllTheThingsElement"), "_1SauceLabsBackpackcarryAllTheThingsElement");
+    }
+
+    public void IClickTheQtydescription1SauceLabsBackpackcarry()
+    {
+        ClickSafely(FindVisible("QTYDescription1SauceLabsBackpackcarryElement"), "QTYDescription1SauceLabsBackpackcarryElement");
     }
 }

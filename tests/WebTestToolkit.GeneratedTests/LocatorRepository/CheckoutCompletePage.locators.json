@@ -1,0 +1,13 @@
+{
+  "url": "https://www.saucedemo.com/",
+  "locators": {
+    "CheckoutCompleteContainerElement": {
+      "strategy": "id",
+      "value": "checkout_complete_container"
+    },
+    "ImgElement": {
+      "strategy": "css",
+      "value": "[data-test=\"pony-express\"]"
+    }
+  }
+}

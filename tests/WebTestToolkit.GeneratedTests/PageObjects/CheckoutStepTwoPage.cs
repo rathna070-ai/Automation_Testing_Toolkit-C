@@ -4,17 +4,17 @@ using WebTestToolkit.GeneratedTests.Support;
 
 namespace WebTestToolkit.GeneratedTests.PageObjects;
 
-public class HomePage
+public class CheckoutStepTwoPage
 {
     private readonly IWebDriver _driver;
     private readonly WebDriverWait _wait;
     private readonly PageLocators _locators;
 
-    public HomePage(DriverContext driverContext)
+    public CheckoutStepTwoPage(DriverContext driverContext)
     {
         _driver = driverContext.Driver;
         _wait = new WebDriverWait(_driver, TimeSpan.FromSeconds(10));
-        _locators = LocatorRepository.Load("HomePage");
+        _locators = LocatorRepository.Load("CheckoutStepTwoPage");
     }
 
     public void NavigateTo()
@@ -22,33 +22,34 @@ public class HomePage
         _driver.Navigate().GoToUrl(_locators.Url);
     }
 
-    public void IClickTheUserName()
+    public void IClickTheTotal3239()
     {
-        ClickSafely(FindVisible("UserNameInput"), "UserNameInput");
+        ClickSafely(FindVisible("Total3239Element"), "Total3239Element");
     }
 
-    public void IEnterTheUserName(string value)
+    public void IClickThe29992()
     {
-        var element = FindVisible("UserNameInput2");
-        element.Clear();
-        element.SendKeys(value);
+        ClickSafely(FindVisible("_2999Element"), "_2999Element");
     }
 
-    public void IClickThePassword()
+    public void IClickTheSwagLabs()
     {
-        ClickSafely(FindVisible("PasswordInput"), "PasswordInput");
+        ClickSafely(FindVisible("SwagLabsElement"), "SwagLabsElement");
     }
 
-    public void IEnterThePassword(string value)
+    public void IClickThe1Link2()
     {
-        var element = FindVisible("PasswordInput2");
-        element.Clear();
-        element.SendKeys(value);
+        ClickSafely(FindVisible("_1Link"), "_1Link");
     }
 
-    public void IClickTheLoginButton()
+    public void IClickTheTotal4318()
     {
-        ClickSafely(FindVisible("LoginButton"), "LoginButton");
+        ClickSafely(FindVisible("Total4318Element"), "Total4318Element");
+    }
+
+    public void IClickTheFinishButton()
+    {
+        ClickSafely(FindVisible("FinishButton"), "FinishButton");
     }
 
     private IWebElement FindVisible(string locatorKey)
@@ -82,35 +83,5 @@ public class HomePage
                 $"\"{ex.AlertText}\". This flow does not handle dialogs — re-record it " +
                 "including the dialog, or stop the page raising it.", ex);
         }
-    }
-
-    public void IClickTheLoginButtonButton()
-    {
-        ClickSafely(FindVisible("LoginButton"), "LoginButton");
-    }
-
-    public void IClickTheEpicSadfaceUsernameAndPasswordDoN()
-    {
-        ClickSafely(FindVisible("EpicSadfaceUsernameAndPasswordDoNElement"), "EpicSadfaceUsernameAndPasswordDoNElement");
-    }
-
-    public void IClickThePath()
-    {
-        ClickSafely(FindVisible("PathElement"), "PathElement");
-    }
-
-    public void IClickTheEpicSadfaceUsernameAndPasswordDoN2()
-    {
-        ClickSafely(FindVisible("EpicSadfaceUsernameAndPasswordDoNElement2"), "EpicSadfaceUsernameAndPasswordDoNElement2");
-    }
-
-    public void IClickTheLoginButtonButton2()
-    {
-        ClickSafely(FindVisible("LoginButton2"), "LoginButton2");
-    }
-
-    public void IClickThePassword2()
-    {
-        ClickSafely(FindVisible("PasswordInput2"), "PasswordInput2");
     }
 }

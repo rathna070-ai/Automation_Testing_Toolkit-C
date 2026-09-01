@@ -4,17 +4,17 @@ using WebTestToolkit.GeneratedTests.Support;
 
 namespace WebTestToolkit.GeneratedTests.PageObjects;
 
-public class HomePage
+public class CheckoutStepOnePage
 {
     private readonly IWebDriver _driver;
     private readonly WebDriverWait _wait;
     private readonly PageLocators _locators;
 
-    public HomePage(DriverContext driverContext)
+    public CheckoutStepOnePage(DriverContext driverContext)
     {
         _driver = driverContext.Driver;
         _wait = new WebDriverWait(_driver, TimeSpan.FromSeconds(10));
-        _locators = LocatorRepository.Load("HomePage");
+        _locators = LocatorRepository.Load("CheckoutStepOnePage");
     }
 
     public void NavigateTo()
@@ -22,33 +22,70 @@ public class HomePage
         _driver.Navigate().GoToUrl(_locators.Url);
     }
 
-    public void IClickTheUserName()
+    public void IClickTheFirstName()
     {
-        ClickSafely(FindVisible("UserNameInput"), "UserNameInput");
+        ClickSafely(FindVisible("FirstNameInput"), "FirstNameInput");
     }
 
-    public void IEnterTheUserName(string value)
+    public void IEnterTheFirstName(string value)
     {
-        var element = FindVisible("UserNameInput2");
+        var element = FindVisible("FirstNameInput2");
         element.Clear();
         element.SendKeys(value);
     }
 
-    public void IClickThePassword()
+    public void IClickTheLastName()
     {
-        ClickSafely(FindVisible("PasswordInput"), "PasswordInput");
+        ClickSafely(FindVisible("LastNameInput"), "LastNameInput");
     }
 
-    public void IEnterThePassword(string value)
+    public void IEnterTheLastName(string value)
     {
-        var element = FindVisible("PasswordInput2");
+        var element = FindVisible("LastNameInput2");
         element.Clear();
         element.SendKeys(value);
     }
 
-    public void IClickTheLoginButton()
+    public void IClickThePostalCode()
     {
-        ClickSafely(FindVisible("LoginButton"), "LoginButton");
+        ClickSafely(FindVisible("PostalCodeInput"), "PostalCodeInput");
+    }
+
+    public void IEnterThePostalCode(string value)
+    {
+        var element = FindVisible("PostalCodeInput2");
+        element.Clear();
+        element.SendKeys(value);
+    }
+
+    public void IClickTheContinueButton()
+    {
+        ClickSafely(FindVisible("ContinueButton"), "ContinueButton");
+    }
+
+    public void IClickThePostalCode2()
+    {
+        ClickSafely(FindVisible("PostalCodeInput3"), "PostalCodeInput3");
+    }
+
+    public void IClickTheLastName2()
+    {
+        ClickSafely(FindVisible("LastNameInput3"), "LastNameInput3");
+    }
+
+    public void IClickTheFirstName2()
+    {
+        ClickSafely(FindVisible("FirstNameInput3"), "FirstNameInput3");
+    }
+
+    public void IClickTheDiv()
+    {
+        ClickSafely(FindVisible("DivElement"), "DivElement");
+    }
+
+    public void IClickTheContinueButton2()
+    {
+        ClickSafely(FindVisible("ContinueButton2"), "ContinueButton2");
     }
 
     private IWebElement FindVisible(string locatorKey)
@@ -82,35 +119,5 @@ public class HomePage
                 $"\"{ex.AlertText}\". This flow does not handle dialogs — re-record it " +
                 "including the dialog, or stop the page raising it.", ex);
         }
-    }
-
-    public void IClickTheLoginButtonButton()
-    {
-        ClickSafely(FindVisible("LoginButton"), "LoginButton");
-    }
-
-    public void IClickTheEpicSadfaceUsernameAndPasswordDoN()
-    {
-        ClickSafely(FindVisible("EpicSadfaceUsernameAndPasswordDoNElement"), "EpicSadfaceUsernameAndPasswordDoNElement");
-    }
-
-    public void IClickThePath()
-    {
-        ClickSafely(FindVisible("PathElement"), "PathElement");
-    }
-
-    public void IClickTheEpicSadfaceUsernameAndPasswordDoN2()
-    {
-        ClickSafely(FindVisible("EpicSadfaceUsernameAndPasswordDoNElement2"), "EpicSadfaceUsernameAndPasswordDoNElement2");
-    }
-
-    public void IClickTheLoginButtonButton2()
-    {
-        ClickSafely(FindVisible("LoginButton2"), "LoginButton2");
-    }
-
-    public void IClickThePassword2()
-    {
-        ClickSafely(FindVisible("PasswordInput2"), "PasswordInput2");
     }
 }

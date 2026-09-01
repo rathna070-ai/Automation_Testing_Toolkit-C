@@ -22,11 +22,6 @@ public class InventoryPage
         _driver.Navigate().GoToUrl(_locators.Url);
     }
 
-    public void IClickTheInventoryContainer()
-    {
-        ClickSafely(FindVisible("InventoryContainerElement"), "InventoryContainerElement");
-    }
-
     public void IClickTheSauceLabsBackpackcarryAllTheThings()
     {
         ClickSafely(FindVisible("SauceLabsBackpackcarryAllTheThingsElement"), "SauceLabsBackpackcarryAllTheThingsElement");
@@ -42,9 +37,24 @@ public class InventoryPage
         ClickSafely(FindVisible("AddToCartSauceLabsBackpackButton"), "AddToCartSauceLabsBackpackButton");
     }
 
+    public void IClickTheProductsNameAtoZnameAtoZname()
+    {
+        ClickSafely(FindVisible("ProductsNameAToZNameAToZNameElement"), "ProductsNameAToZNameAToZNameElement");
+    }
+
     public void IClickThe1Link()
     {
         ClickSafely(FindVisible("_1Link"), "_1Link");
+    }
+
+    public void IClickTheAddToCartSauceLabsBikeLightButton()
+    {
+        ClickSafely(FindVisible("AddToCartSauceLabsBikeLightButton"), "AddToCartSauceLabsBikeLightButton");
+    }
+
+    public void IClickThe2Link()
+    {
+        ClickSafely(FindVisible("_2Link"), "_2Link");
     }
 
     private IWebElement FindVisible(string locatorKey)
@@ -56,16 +66,6 @@ public class InventoryPage
             var element = driver.FindElement(by);
             return element.Displayed ? element : null;
         });
-    }
-
-    public void IClickTheAddToCartSauceLabsBikeLightButton()
-    {
-        ClickSafely(FindVisible("AddToCartSauceLabsBikeLightButton"), "AddToCartSauceLabsBikeLightButton");
-    }
-
-    public void IClickTheALink()
-    {
-        ClickSafely(FindVisible("ALink"), "ALink");
     }
 
     private void ClickSafely(IWebElement element, string locatorKey)
@@ -88,5 +88,15 @@ public class InventoryPage
                 $"\"{ex.AlertText}\". This flow does not handle dialogs — re-record it " +
                 "including the dialog, or stop the page raising it.", ex);
         }
+    }
+
+    public void IClickTheInventoryContainer()
+    {
+        ClickSafely(FindVisible("InventoryContainerElement"), "InventoryContainerElement");
+    }
+
+    public void IClickTheALink()
+    {
+        ClickSafely(FindVisible("ALink"), "ALink");
     }
 }

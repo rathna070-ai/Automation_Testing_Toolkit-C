@@ -1,6 +1,26 @@
 {
   "url": "https://www.saucedemo.com/",
   "locators": {
+    "CartContentsContainerElement": {
+      "strategy": "id",
+      "value": "cart_contents_container"
+    },
+    "CheckoutButton": {
+      "strategy": "id",
+      "value": "checkout"
+    },
+    "ContinueShoppingButton": {
+      "strategy": "id",
+      "value": "continue-shopping"
+    },
+    "CartContentsContainerElement2": {
+      "strategy": "id",
+      "value": "cart_contents_container"
+    },
+    "CheckoutButton2": {
+      "strategy": "id",
+      "value": "checkout"
+    },
     "_1SauceLabsBackpackcarryAllTheThingsElement": {
       "strategy": "css",
       "value": "[data-test=\"inventory-item\"]"

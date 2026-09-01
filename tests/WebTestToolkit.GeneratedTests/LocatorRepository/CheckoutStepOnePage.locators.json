@@ -1,0 +1,53 @@
+{
+  "url": "https://www.saucedemo.com/",
+  "locators": {
+    "FirstNameInput": {
+      "strategy": "id",
+      "value": "first-name"
+    },
+    "FirstNameInput2": {
+      "strategy": "id",
+      "value": "first-name"
+    },
+    "LastNameInput": {
+      "strategy": "id",
+      "value": "last-name"
+    },
+    "LastNameInput2": {
+      "strategy": "id",
+      "value": "last-name"
+    },
+    "PostalCodeInput": {
+      "strategy": "id",
+      "value": "postal-code"
+    },
+    "PostalCodeInput2": {
+      "strategy": "id",
+      "value": "postal-code"
+    },
+    "ContinueButton": {
+      "strategy": "id",
+      "value": "continue"
+    },
+    "PostalCodeInput3": {
+      "strategy": "id",
+      "value": "postal-code"
+    },
+    "LastNameInput3": {
+      "strategy": "id",
+      "value": "last-name"
+    },
+    "FirstNameInput3": {
+      "strategy": "id",
+      "value": "first-name"
+    },
+    "DivElement": {
+      "strategy": "css",
+      "value": "form > div:nth-of-type(1)"
+    },
+    "ContinueButton2": {
+      "strategy": "id",
+      "value": "continue"
+    }
+  }
+}
