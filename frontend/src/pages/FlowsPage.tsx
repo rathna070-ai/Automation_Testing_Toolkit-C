@@ -1,13 +1,17 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
+  deleteSavedFlow,
   downloadGeneratedFilesZip,
   generateFlow,
+  getSavedFlow,
+  listSavedFlows,
   previewFlow,
   suggestEdgeCases,
   type EdgeCaseOption,
   type GenerateFlowResponse,
   type GenerationSource,
+  type SavedFlowSummary,
   type TestFlow,
 } from '../api/client'
 import { SAMPLE_FLOW } from './sampleFlow'
@@ -50,6 +54,12 @@ export function FlowsPage() {
   const [showAttempts, setShowAttempts] = useState(false)
   const [compareDeterministic, setCompareDeterministic] = useState(false)
   const [downloadError, setDownloadError] = useState('')
+
+  // Saved flows (P19). A recording is persisted server-side when its inspect session stops,
+  // so this list is how you get back to a flow recorded days ago — the case that used to be
+  // impossible, because the flow only ever lived in the tab that recorded it.
+  const [savedFlows, setSavedFlows] = useState<SavedFlowSummary[]>([])
+  const [savedError, setSavedError] = useState('')
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
 
   const [edgeCaseState, setEdgeCaseState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
@@ -58,6 +68,35 @@ export function FlowsPage() {
   const [edgeCaseRuns, setEdgeCaseRuns] = useState<Record<string, EdgeCaseRunState>>({})
 
   const isSample = flow === SAMPLE_FLOW
+
+  function refreshSavedFlows() {
+    listSavedFlows()
+      .then(setSavedFlows)
+      .catch((e) => setSavedError(String(e)))
+  }
+
+  useEffect(refreshSavedFlows, [])
+
+  async function loadSavedFlow(name: string) {
+    setSavedError('')
+    try {
+      setFlow(await getSavedFlow(name))
+      setResult(null)
+      setState('idle')
+    } catch (e) {
+      setSavedError(String(e))
+    }
+  }
+
+  async function removeSavedFlow(name: string) {
+    setSavedError('')
+    try {
+      await deleteSavedFlow(name)
+      refreshSavedFlows()
+    } catch (e) {
+      setSavedError(String(e))
+    }
+  }
 
   async function loadEdgeCases() {
     setEdgeCaseState('loading')
@@ -151,6 +190,37 @@ export function FlowsPage() {
           </>
         )}
       </p>
+
+      <section style={{ margin: '1rem 0' }}>
+        <strong>Saved flows</strong>
+        <p style={{ opacity: 0.7, fontSize: '0.9em', margin: '0.25rem 0' }}>
+          Recordings are saved when an Inspect session stops, so they survive closing the tab and
+          restarting the API. Load one to re-generate it after the app it tests has changed —
+          without re-recording.
+        </p>
+        {savedError && <p style={{ color: '#cf222e' }}>{savedError}</p>}
+        {savedFlows.length === 0 ? (
+          <p style={{ opacity: 0.7 }}>
+            Nothing saved yet — capture a flow on the <Link to="/inspect">Inspect</Link> page.
+          </p>
+        ) : (
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+            {savedFlows.map((f) => (
+              <li key={f.name} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', padding: '2px 0' }}>
+                <button onClick={() => loadSavedFlow(f.name)}>Load</button>
+                <span>
+                  <strong>{f.name}</strong> — {f.stepCount} step(s) ·{' '}
+                  <span style={{ opacity: 0.7 }}>{f.startUrl}</span>{' '}
+                  <span style={{ opacity: 0.55 }}>({new Date(f.savedUtc).toLocaleString()})</span>
+                </span>
+                <button onClick={() => removeSavedFlow(f.name)} style={{ fontSize: '0.85em' }}>
+                  Delete
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', margin: '1rem 0', flexWrap: 'wrap' }}>
         <label>

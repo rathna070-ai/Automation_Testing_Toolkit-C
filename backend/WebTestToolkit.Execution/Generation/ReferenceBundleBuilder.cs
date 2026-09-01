@@ -184,7 +184,66 @@ public class ReferenceBundleBuilder
             return JsonSerializer.Serialize(flow, FlowJsonOptions);
 
         RemoveOmittedFields(node);
+        CollapseCandidatesToBestLocator(node);
         return node.ToJsonString(FlowJsonOptions);
+    }
+
+    // Replace each element's full ranked `candidates` array with the single conclusion
+    // CapturedElement.BestLocator already draws from it. The model was being handed the raw
+    // ranking and left to re-derive the winner — more tokens for a worse-defined task, and a
+    // chance to pick a lower-scored candidate for no reason. Real element state (options,
+    // checked, required, maxLength) is deliberately *kept*: unlike the ranking, it is
+    // information the model cannot compute for itself and needs in order to write the right
+    // kind of interaction.
+    private static void CollapseCandidatesToBestLocator(JsonNode node)
+    {
+        if (node is JsonObject obj)
+        {
+            var candidatesKey = obj
+                .Select(p => p.Key)
+                .FirstOrDefault(k => string.Equals(k, "candidates", StringComparison.OrdinalIgnoreCase));
+
+            if (candidatesKey is not null && obj[candidatesKey] is JsonArray candidates)
+            {
+                var best = candidates
+                    .OfType<JsonObject>()
+                    .Select(c => new
+                    {
+                        Node = c,
+                        Score = ReadInt(c, "score")
+                    })
+                    .OrderByDescending(c => c.Score)
+                    .FirstOrDefault();
+
+                obj.Remove(candidatesKey);
+                if (best is not null)
+                {
+                    // Same shape the winning candidate had, so nothing new has to be
+                    // explained to the model — just one entry instead of a ranked list.
+                    obj["bestLocator"] = best.Node.DeepClone();
+                }
+            }
+
+            foreach (var property in obj.ToList())
+                CollapseCandidatesToBestLocator(property.Value!);
+            return;
+        }
+
+        if (node is JsonArray array)
+        {
+            foreach (var item in array.Where(i => i is not null))
+                CollapseCandidatesToBestLocator(item!);
+        }
+    }
+
+    private static int ReadInt(JsonObject obj, string name)
+    {
+        var key = obj.Select(p => p.Key)
+            .FirstOrDefault(k => string.Equals(k, name, StringComparison.OrdinalIgnoreCase));
+
+        return key is not null && obj[key] is JsonValue value && value.TryGetValue<int>(out var parsed)
+            ? parsed
+            : 0;
     }
 
     // Matches on name alone, at any depth and in either casing, rather than walking a fixed

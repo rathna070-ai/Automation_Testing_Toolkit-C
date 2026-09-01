@@ -45,6 +45,8 @@ builder.Services.AddSingleton<GeneratedProjectWriter>();
 // twice with nothing changed is two separate HTTP requests, so a per-request cache would
 // never see its own entry.
 builder.Services.AddSingleton<GenerationResultCache>();
+// Singleton to match FileSettingsStore: both own a SemaphoreSlim guarding their own files.
+builder.Services.AddSingleton<FlowStore>();
 builder.Services.AddScoped<HybridTestCodeGenerator>();
 
 // Browser sessions outlive the request that opened them; the manager is a singleton and

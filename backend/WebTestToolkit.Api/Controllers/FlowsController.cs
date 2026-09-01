@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using WebTestToolkit.Api.Dtos;
+using WebTestToolkit.Api.Services;
+using WebTestToolkit.Contracts.Models;
 using WebTestToolkit.Execution.Generation;
 using WebTestToolkit.Llm.Skills;
 
@@ -11,12 +13,50 @@ public class FlowsController : ControllerBase
 {
     private readonly HybridTestCodeGenerator _generator;
     private readonly EdgeCaseGenerationSkill _edgeCaseSkill;
+    private readonly FlowStore _flows;
 
-    public FlowsController(HybridTestCodeGenerator generator, EdgeCaseGenerationSkill edgeCaseSkill)
+    public FlowsController(
+        HybridTestCodeGenerator generator, EdgeCaseGenerationSkill edgeCaseSkill, FlowStore flows)
     {
         _generator = generator;
         _edgeCaseSkill = edgeCaseSkill;
+        _flows = flows;
     }
+
+    // --- Saved flows (P19) ------------------------------------------------------------
+    //
+    // A recorded flow used to exist only in the live inspect session and the browser tab that
+    // recorded it, so it could never be re-generated after the UI it targets changed. These
+    // three endpoints plus save-on-stop (InspectController) are what make that possible.
+
+    [HttpGet]
+    public async Task<ActionResult<IReadOnlyList<SavedFlowSummary>>> List(CancellationToken ct) =>
+        Ok(await _flows.ListAsync(ct));
+
+    [HttpGet("{name}")]
+    public async Task<ActionResult<TestFlow>> Get(string name, CancellationToken ct)
+    {
+        var flow = await _flows.GetAsync(name, ct);
+        return flow is null ? NotFound(new { error = $"No saved flow named '{name}'." }) : Ok(flow);
+    }
+
+    // Explicit save, for a flow assembled or edited outside an inspect session (the built-in
+    // sample, or an accepted edge case) — save-on-stop covers the recorded path.
+    [HttpPut("{name}")]
+    public async Task<ActionResult<SavedFlowSummary>> Save(string name, [FromBody] TestFlow flow, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(flow.Name))
+            flow.Name = name;
+
+        await _flows.SaveAsync(flow, ct);
+        return Ok(new SavedFlowSummary(flow.Name, flow.StartUrl, flow.Steps.Count, DateTimeOffset.UtcNow));
+    }
+
+    [HttpDelete("{name}")]
+    public async Task<IActionResult> Delete(string name, CancellationToken ct) =>
+        await _flows.DeleteAsync(name, ct)
+            ? NoContent()
+            : NotFound(new { error = $"No saved flow named '{name}'." });
 
     // Same pipeline as generate, including the sandbox compile, but writes nothing —
     // this is what lets the UI show a verified diff before anything touches tests/.

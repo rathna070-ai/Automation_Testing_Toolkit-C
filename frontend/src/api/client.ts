@@ -196,6 +196,37 @@ export function generateFlow(request: GenerateFlowRequest): Promise<GenerateFlow
   return sendJson<GenerateFlowResponse>('/api/flows/generate', 'POST', request)
 }
 
+// --- Saved flows (P19) ------------------------------------------------------------
+// A recorded flow is saved server-side when its inspect session stops, so it outlives the
+// session, the browser tab and an API restart — which is what makes re-generating an old
+// flow against a changed UI possible at all.
+
+export interface SavedFlowSummary {
+  name: string
+  startUrl: string
+  stepCount: number
+  savedUtc: string
+}
+
+export function listSavedFlows(): Promise<SavedFlowSummary[]> {
+  return getJson<SavedFlowSummary[]>('/api/flows')
+}
+
+export function getSavedFlow(name: string): Promise<TestFlow> {
+  return getJson<TestFlow>(`/api/flows/${encodeURIComponent(name)}`)
+}
+
+export function saveFlow(flow: TestFlow): Promise<SavedFlowSummary> {
+  return sendJson<SavedFlowSummary>(`/api/flows/${encodeURIComponent(flow.name)}`, 'PUT', flow)
+}
+
+export async function deleteSavedFlow(name: string): Promise<void> {
+  const response = await fetch(`/api/flows/${encodeURIComponent(name)}`, { method: 'DELETE' })
+  if (!response.ok) {
+    throw new Error(`DELETE /api/flows/${name} returned ${response.status} ${response.statusText}`)
+  }
+}
+
 // --- Edge-case suggestions (P9) ----------------------------------------------------
 // Speculative LLM output, reviewed before use — never written or compiled by this call.
 // Each option already carries a complete TestFlow (same steps/locators as the original,

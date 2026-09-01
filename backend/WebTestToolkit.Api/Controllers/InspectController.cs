@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using WebTestToolkit.Api.Dtos;
+using WebTestToolkit.Api.Services;
 using WebTestToolkit.Contracts.Models;
 using WebTestToolkit.Inspector;
 using WebTestToolkit.Llm.Skills;
@@ -14,11 +15,19 @@ public class InspectController : ControllerBase
 {
     private readonly InspectorSessionManager _sessions;
     private readonly StepLabelSuggestionSkill _labelSkill;
+    private readonly FlowStore _flows;
+    private readonly ILogger<InspectController> _logger;
 
-    public InspectController(InspectorSessionManager sessions, StepLabelSuggestionSkill labelSkill)
+    public InspectController(
+        InspectorSessionManager sessions,
+        StepLabelSuggestionSkill labelSkill,
+        FlowStore flows,
+        ILogger<InspectController> logger)
     {
         _sessions = sessions;
         _labelSkill = labelSkill;
+        _flows = flows;
+        _logger = logger;
     }
 
     [HttpGet("sessions")]
@@ -93,6 +102,24 @@ public class InspectController : ControllerBase
             return SessionNotFound(id);
 
         await session.StopAsync(ct);
+
+        // Persist here rather than at Generate: stopping is the moment the recording is
+        // complete, and it is also the last moment the session is guaranteed to still exist
+        // (InspectorSessionManager evicts completed sessions after CompletedRetention, and
+        // an API restart drops them immediately). Saving at Generate would lose every
+        // recording the user did not immediately generate from.
+        //
+        // A failure to save must not fail the stop — the steps are still in the response, so
+        // the immediate Inspect → Generate handoff keeps working either way.
+        try
+        {
+            await _flows.SaveAsync(session.ToFlow(), ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not save flow for inspect session {SessionId}", id);
+        }
+
         // Returns the captured steps, not just an ack — "Stop Inspect" is immediately
         // followed by "Generate", and the steps are what that needs.
         return Ok(InspectSessionResponse.From(session));

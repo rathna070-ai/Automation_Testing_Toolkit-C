@@ -95,6 +95,21 @@ public static class PageObjectGenerator
                 sb.AppendLine("    }");
                 break;
 
+            case ActionType.Click when DesiredToggleState(plan.Step.Element) is { } desired:
+                // A checkbox or radio whose recorded end state we know. An unconditional
+                // Click() *toggles*, so replaying it against a page that already has the box
+                // set — a remembered preference, a second run in the same session, a default
+                // that changed — silently inverts the state the recording captured and the
+                // rest of the scenario then tests the wrong thing. Asserting the end state
+                // instead of repeating the gesture makes the step idempotent.
+                sb.AppendLine($"    public void {plan.PageObjectMethodName}()");
+                sb.AppendLine("    {");
+                sb.AppendLine($"        var element = FindVisible(\"{plan.LocatorKey}\");");
+                sb.AppendLine($"        if (element.Selected != {(desired ? "true" : "false")})");
+                sb.AppendLine("            element.Click();");
+                sb.AppendLine("    }");
+                break;
+
             case ActionType.Click:
                 sb.AppendLine($"    public void {plan.PageObjectMethodName}()");
                 sb.AppendLine("    {");
@@ -116,5 +131,23 @@ public static class PageObjectGenerator
                 sb.AppendLine("    }");
                 break;
         }
+    }
+
+    // The end state a click on a checkbox/radio was recorded as producing, or null when the
+    // element is not a toggle (or the capture predates Checked being recorded) and a plain
+    // Click() is the right thing.
+    //
+    // Radios are deliberately included only for the "ends up selected" case: clicking a radio
+    // cannot deselect it, so a false here would generate a branch that can never run.
+    private static bool? DesiredToggleState(CapturedElement? element)
+    {
+        if (element?.Checked is not { } isChecked)
+            return null;
+
+        var type = (element.Type ?? "").ToLowerInvariant();
+        if (type == "checkbox")
+            return isChecked;
+
+        return type == "radio" && isChecked ? true : null;
     }
 }
