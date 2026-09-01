@@ -14,23 +14,70 @@ namespace WebTestToolkit.Export;
 public static class TestCaseSuiteBuilder
 {
     public static async Task<TestCaseSuite> BuildAsync(
-        TestFlow flow, TestCaseProseSkill skill, bool useLlm, CancellationToken ct)
+        TestFlow flow,
+        TestCaseProseSkill skill,
+        bool useLlm,
+        CancellationToken ct,
+        IReadOnlyList<TestFlow>? edgeCaseFlows = null,
+        IReadOnlyList<ScenarioResult>? lastRun = null)
     {
-        var testCase = BuildDeterministic(flow);
+        // The recorded happy path is always TC-001; accepted edge cases follow it. P6 shipped
+        // only the first of these and left a comment anticipating the rest — the schema
+        // (TestCaseSource, LastRunStatus) has been ready since then, so this is wiring rather
+        // than new modelling.
+        var flows = new List<(TestFlow Flow, TestCaseSource Source)> { (flow, TestCaseSource.Recorded) };
+        flows.AddRange((edgeCaseFlows ?? []).Select(f => (f, TestCaseSource.EdgeCase)));
 
-        if (useLlm)
+        var documents = new List<TestCaseDocument>();
+        for (var i = 0; i < flows.Count; i++)
         {
-            var enhanced = await TryEnhanceAsync(flow, testCase, skill, ct);
-            if (enhanced is not null)
-                testCase = enhanced;
+            var (current, source) = flows[i];
+            var document = BuildDeterministic(current, $"TC-{i + 1:D3}", source);
+
+            if (useLlm)
+            {
+                var enhanced = await TryEnhanceAsync(current, document, skill, ct);
+                if (enhanced is not null)
+                    document = enhanced;
+            }
+
+            // TestCaseDocument is a class with settable properties, not a record — so this
+            // is an assignment rather than a `with`.
+            document.LastRunStatus = OutcomeFor(current, lastRun);
+            documents.Add(document);
         }
 
         return new TestCaseSuite
         {
             FlowName = flow.Name,
             StartUrl = flow.StartUrl,
-            TestCases = [testCase]
+            TestCases = documents
         };
+    }
+
+    // A test-case document is only worth exporting if it says whether the case actually
+    // passed. The run report keys scenarios by feature name, which is the flow name the
+    // generator writes into `Feature:` — so the match is on that rather than on the document
+    // title, which the LLM is free to reword.
+    private static ScenarioOutcome? OutcomeFor(TestFlow flow, IReadOnlyList<ScenarioResult>? lastRun)
+    {
+        if (lastRun is null || lastRun.Count == 0)
+            return null;
+
+        var matches = lastRun
+            .Where(r => string.Equals(r.FeatureName, flow.Name, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (matches.Count == 0)
+            return null;
+
+        // A feature with several scenarios reports worst-first: one failure makes the case
+        // failed, and "skipped" is not a pass.
+        if (matches.Any(m => m.Outcome == ScenarioOutcome.Failed))
+            return ScenarioOutcome.Failed;
+        if (matches.Any(m => m.Outcome == ScenarioOutcome.Skipped))
+            return ScenarioOutcome.Skipped;
+        return ScenarioOutcome.Passed;
     }
 
     private static async Task<TestCaseDocument?> TryEnhanceAsync(
@@ -70,17 +117,18 @@ public static class TestCaseSuiteBuilder
 
     // The no-API-key path. Every field here has to stand on its own — this is what the
     // export looks like for a tool with nothing configured, not a degraded preview of it.
-    public static TestCaseDocument BuildDeterministic(TestFlow flow)
+    public static TestCaseDocument BuildDeterministic(
+        TestFlow flow, string id = "TC-001", TestCaseSource source = TestCaseSource.Recorded)
     {
         return new TestCaseDocument
         {
-            // Suites only ever hold one document today (the recorded happy path); once P9
-            // adds edge cases/outline rows, this becomes TC-002, TC-003, ...
-            Id = "TC-001",
+            Id = id,
             Title = $"{flow.Name} flow",
             Precondition = $"User starts at {flow.StartUrl}",
-            Priority = TestCasePriority.Medium,
-            Source = TestCaseSource.Recorded,
+            // An edge case is the negative path — the one a manual tester is most likely to
+            // skip under time pressure, which is exactly why it is worth flagging higher.
+            Priority = source == TestCaseSource.EdgeCase ? TestCasePriority.High : TestCasePriority.Medium,
+            Source = source,
             LastRunStatus = null,
             Steps = flow.Steps
                 .Select(s => new TestCaseStep(s.Order, DeterministicAction(s), s.InputValue, DeterministicExpectedResult(s)))
@@ -111,6 +159,7 @@ public static class TestCaseSuiteBuilder
         {
             ActionType.Navigate => $"The {Humanize(step.PageName)} page loads.",
             ActionType.Type => "The field contains the entered value.",
+            ActionType.Select => "The dropdown shows the chosen option as selected.",
             ActionType.Click => "The click completes and the page responds accordingly.",
             ActionType.AssertText => "The expected text is visible on the page.",
             ActionType.AssertVisible => "The expected element is visible on the page.",

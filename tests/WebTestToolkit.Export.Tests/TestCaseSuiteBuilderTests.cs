@@ -36,6 +36,10 @@ public class TestCaseSuiteBuilderTests
     private static TestCaseProseSkill BuildSkill(IChatClient chatClient) =>
         new(chatClient, new PromptLibrary(), NullLogger<TestCaseProseSkill>.Instance);
 
+    // For the useLlm:false cases below, where the skill is required by the signature but
+    // never invoked.
+    private static TestCaseProseSkill Skill() => BuildSkill(new FakeChatClient(ChatResult.Unavailable("unused")));
+
     [Test]
     public async Task BuildAsync_NoLlm_ProducesOneDeterministicTestCasePerStep()
     {
@@ -137,5 +141,124 @@ public class TestCaseSuiteBuilderTests
         var suite = await TestCaseSuiteBuilder.BuildAsync(SampleFlow(), skill, useLlm: true, CancellationToken.None);
 
         Assert.That(suite.TestCases[0].Title, Is.EqualTo("Login flow"));
+    }
+
+    // --- Edge cases and last-run status -------------------------------------------------
+    //
+    // P6 shipped only the recorded happy path, leaving TestCaseSource and LastRunStatus in the
+    // schema with a comment anticipating this. Both are what turns the export from a static
+    // description of intent into a document that says which cases exist and which actually
+    // passed.
+
+    private static TestFlow EdgeCaseFlow(string name) => new()
+    {
+        Name = name,
+        StartUrl = "https://the-internet.herokuapp.com/login",
+        Steps =
+        [
+            new TestStep { Order = 1, ActionType = ActionType.Navigate, Label = "I open the login page", PageName = "LoginPage" },
+            new TestStep
+            {
+                Order = 2, ActionType = ActionType.Type, Label = "I enter the password", PageName = "LoginPage",
+                LocatorKey = "PasswordInput", InputValue = "wrong-password"
+            }
+        ]
+    };
+
+    [Test]
+    public async Task EdgeCaseFlows_AreExportedAlongsideTheRecordedPath()
+    {
+        var suite = await TestCaseSuiteBuilder.BuildAsync(
+            SampleFlow(), Skill(), useLlm: false, CancellationToken.None,
+            edgeCaseFlows: [EdgeCaseFlow("Login - invalid password")]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(suite.TestCases, Has.Count.EqualTo(2));
+
+            Assert.That(suite.TestCases[0].Id, Is.EqualTo("TC-001"));
+            Assert.That(suite.TestCases[0].Source, Is.EqualTo(TestCaseSource.Recorded));
+
+            Assert.That(suite.TestCases[1].Id, Is.EqualTo("TC-002"));
+            Assert.That(suite.TestCases[1].Source, Is.EqualTo(TestCaseSource.EdgeCase));
+            Assert.That(suite.TestCases[1].Priority, Is.EqualTo(TestCasePriority.High),
+                "The negative path is the one most likely to be skipped under time pressure.");
+        });
+    }
+
+    [Test]
+    public async Task LastRunStatus_IsMatchedByFeatureName()
+    {
+        var lastRun = new List<ScenarioResult>
+        {
+            new() { FeatureName = "Login", ScenarioName = "Login flow", Outcome = ScenarioOutcome.Passed },
+            new() { FeatureName = "Login - invalid password", ScenarioName = "...", Outcome = ScenarioOutcome.Failed }
+        };
+
+        var suite = await TestCaseSuiteBuilder.BuildAsync(
+            SampleFlow(), Skill(), useLlm: false, CancellationToken.None,
+            edgeCaseFlows: [EdgeCaseFlow("Login - invalid password")],
+            lastRun: lastRun);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(suite.TestCases[0].LastRunStatus, Is.EqualTo(ScenarioOutcome.Passed));
+            Assert.That(suite.TestCases[1].LastRunStatus, Is.EqualTo(ScenarioOutcome.Failed));
+        });
+    }
+
+    // A feature whose scenarios disagree reports worst-first: one failure makes the case
+    // failed, because a document that called it passed would be actively misleading.
+    [Test]
+    public async Task LastRunStatus_ReportsTheWorstOutcomeForAFeature()
+    {
+        var lastRun = new List<ScenarioResult>
+        {
+            new() { FeatureName = "Login", ScenarioName = "a", Outcome = ScenarioOutcome.Passed },
+            new() { FeatureName = "Login", ScenarioName = "b", Outcome = ScenarioOutcome.Failed }
+        };
+
+        var suite = await TestCaseSuiteBuilder.BuildAsync(
+            SampleFlow(), Skill(), useLlm: false, CancellationToken.None, lastRun: lastRun);
+
+        Assert.That(suite.TestCases[0].LastRunStatus, Is.EqualTo(ScenarioOutcome.Failed));
+    }
+
+    [Test]
+    public async Task NoRunYet_LeavesLastRunStatusNull()
+    {
+        var suite = await TestCaseSuiteBuilder.BuildAsync(
+            SampleFlow(), Skill(), useLlm: false, CancellationToken.None);
+
+        Assert.That(suite.TestCases[0].LastRunStatus, Is.Null,
+            "Null means \"not run\", which is different from a run that reported nothing for it.");
+    }
+
+    [Test]
+    public async Task AFlowWithNoMatchingRunEntry_LeavesItsStatusNull()
+    {
+        var lastRun = new List<ScenarioResult>
+        {
+            new() { FeatureName = "SomeOtherFeature", ScenarioName = "x", Outcome = ScenarioOutcome.Passed }
+        };
+
+        var suite = await TestCaseSuiteBuilder.BuildAsync(
+            SampleFlow(), Skill(), useLlm: false, CancellationToken.None, lastRun: lastRun);
+
+        Assert.That(suite.TestCases[0].LastRunStatus, Is.Null);
+    }
+
+    // Select had no wording of its own, so every dropdown step exported the generic
+    // "The action completes as expected." fallback.
+    [Test]
+    public void SelectStep_GetsDropdownSpecificExpectedResult()
+    {
+        var flow = SampleFlow();
+        flow.Steps[1].ActionType = ActionType.Select;
+        flow.Steps[1].Label = "I choose the country dropdown";
+
+        var document = TestCaseSuiteBuilder.BuildDeterministic(flow);
+
+        Assert.That(document.Steps[1].ExpectedResult, Does.Contain("dropdown"));
     }
 }

@@ -1,0 +1,58 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["groups", "summary"],
+  "properties": {
+    "summary": {
+      "type": "string",
+      "description": "One or two plain-English sentences stating how many distinct problems this run's failures actually represent."
+    },
+    "groups": {
+      "type": "array",
+      "description": "Distinct root causes, most-explanatory first. Two scenarios failing for the same reason belong in ONE group.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "category", "rootCause", "suggestedFix", "scenarioNames", "suggestedLocator", "isLikelyApplicationBug", "confidence"],
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "A short label for this root cause, e.g. 'Login button locator is stale'."
+          },
+          "category": {
+            "type": "string",
+            "enum": ["brokenLocator", "timing", "assertionMismatch", "navigation", "testData", "environment", "applicationBug", "unknown"]
+          },
+          "rootCause": {
+            "type": "string",
+            "description": "Two to four plain-English sentences explaining the likely cause. No jargon."
+          },
+          "suggestedFix": {
+            "type": "string",
+            "description": "One concrete, actionable next step that would clear every scenario in this group."
+          },
+          "scenarioNames": {
+            "type": "array",
+            "description": "Exactly the scenario names from the input that this root cause explains. Every input scenario must appear in exactly one group.",
+            "items": { "type": "string" }
+          },
+          "suggestedLocator": {
+            "type": ["object", "null"],
+            "additionalProperties": false,
+            "required": ["page", "key", "strategy", "value", "why"],
+            "description": "Only when the group clearly names a specific broken locator and you are confident about a replacement. Null otherwise.",
+            "properties": {
+              "page": { "type": "string", "description": "Page object class name, e.g. LoginPage." },
+              "key": { "type": "string", "description": "Locator key, e.g. UsernameInput." },
+              "strategy": { "type": "string", "enum": ["id", "css", "xpath", "name"] },
+              "value": { "type": "string" },
+              "why": { "type": "string" }
+            }
+          },
+          "isLikelyApplicationBug": { "type": "boolean" },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    }
+  }
+}

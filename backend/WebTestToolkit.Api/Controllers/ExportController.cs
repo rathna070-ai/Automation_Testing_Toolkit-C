@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using WebTestToolkit.Api.Dtos;
+using WebTestToolkit.Api.Services;
 using WebTestToolkit.Contracts.Models;
 using WebTestToolkit.Export;
 using WebTestToolkit.Llm.Skills;
@@ -15,11 +16,23 @@ public class ExportController : ControllerBase
     private const string ZipContentType = "application/zip";
 
     private readonly TestCaseProseSkill _proseSkill;
+    private readonly TestRunSessionManager _runs;
 
-    public ExportController(TestCaseProseSkill proseSkill)
+    public ExportController(TestCaseProseSkill proseSkill, TestRunSessionManager runs)
     {
         _proseSkill = proseSkill;
+        _runs = runs;
     }
+
+    // The last run's per-scenario outcomes, so an exported case can say whether it actually
+    // passed rather than only what it is supposed to do. Read from the run manager rather than
+    // asked for in the request: the client should not have to carry run state around, and the
+    // answer is only meaningful if it is the *latest* run.
+    private IReadOnlyList<ScenarioResult>? LastRunScenarios() => _runs.Latest()?.Summary?.Scenarios;
+
+    private Task<TestCaseSuite> BuildSuiteAsync(ExportTestCasesRequest request, CancellationToken ct) =>
+        TestCaseSuiteBuilder.BuildAsync(
+            request.Flow, _proseSkill, request.UseLlm, ct, request.EdgeCaseFlows, LastRunScenarios());
 
     // Preview, not a download — the UI shows this table before the user commits to
     // exporting a file, same shape /api/flows/preview gives Generate.
@@ -30,7 +43,7 @@ public class ExportController : ControllerBase
         if (validation is not null)
             return validation;
 
-        var suite = await TestCaseSuiteBuilder.BuildAsync(request.Flow, _proseSkill, request.UseLlm, ct);
+        var suite = await BuildSuiteAsync(request, ct);
         return Ok(suite);
     }
 
@@ -41,7 +54,7 @@ public class ExportController : ControllerBase
         if (validation is not null)
             return validation;
 
-        var suite = await TestCaseSuiteBuilder.BuildAsync(request.Flow, _proseSkill, request.UseLlm, ct);
+        var suite = await BuildSuiteAsync(request, ct);
         var bytes = ExcelTestCaseWriter.WriteBytes(suite);
         return File(bytes, XlsxContentType, $"{FileSafeName(request.Flow.Name)}-test-cases.xlsx");
     }
@@ -53,7 +66,7 @@ public class ExportController : ControllerBase
         if (validation is not null)
             return validation;
 
-        var suite = await TestCaseSuiteBuilder.BuildAsync(request.Flow, _proseSkill, request.UseLlm, ct);
+        var suite = await BuildSuiteAsync(request, ct);
         var bytes = XmlTestCaseWriter.WriteBytes(suite);
         return File(bytes, XmlContentType, $"{FileSafeName(request.Flow.Name)}-test-cases.xml");
     }

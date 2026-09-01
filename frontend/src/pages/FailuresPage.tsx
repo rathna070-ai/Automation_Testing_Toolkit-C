@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { analyzeFailure, getLlmStatus, type AnalyzeFailureResponse } from '../api/client'
+import {
+  analyzeFailure,
+  analyzeRun,
+  getLlmStatus,
+  type AnalyzeFailureResponse,
+  type AnalyzeRunResponse,
+} from '../api/client'
 import { getLatestRun, type ScenarioResult } from '../api/execution'
 
 type AnalyzeState = 'idle' | 'running' | 'done' | 'error'
@@ -14,6 +20,24 @@ export function FailuresPage() {
   const [analyzeStates, setAnalyzeStates] = useState<Record<number, AnalyzeState>>({})
   const [analyzeResults, setAnalyzeResults] = useState<Record<number, AnalyzeFailureResponse>>({})
   const [analyzeErrors, setAnalyzeErrors] = useState<Record<number, string>>({})
+
+  // Run-level triage, separate from the per-scenario analysis below. Six failures are usually
+  // one problem hit six times, and only a call that sees them together can say so.
+  const [runState, setRunState] = useState<AnalyzeState>('idle')
+  const [runResult, setRunResult] = useState<AnalyzeRunResponse | null>(null)
+  const [runError, setRunError] = useState('')
+
+  async function triageRun() {
+    setRunState('running')
+    setRunError('')
+    try {
+      setRunResult(await analyzeRun())
+      setRunState('done')
+    } catch (e) {
+      setRunError(String(e))
+      setRunState('error')
+    }
+  }
 
   useEffect(() => {
     getLlmStatus()
@@ -73,6 +97,64 @@ export function FailuresPage() {
 
       {phase === 'done' && failures.length > 0 && (
         <>
+          <section style={{ margin: '1rem 0', padding: '0.75rem', border: '1px solid #d0d7de', borderRadius: 4 }}>
+            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+              <strong>Triage the whole run</strong>
+              <button onClick={triageRun} disabled={runState === 'running' || !llmAvailable}>
+                {runState === 'running' ? 'Grouping…' : `Group ${failures.length} failures by cause`}
+              </button>
+            </div>
+            <p style={{ opacity: 0.7, fontSize: '0.9em', margin: '0.35rem 0 0' }}>
+              Analysing failures one at a time cannot tell you that several share a cause. This
+              looks at them together and reports how many distinct problems there actually are.
+            </p>
+
+            {runState === 'error' && <p style={{ color: '#cf222e' }}>{runError}</p>}
+
+            {runState === 'done' && runResult && !runResult.available && (
+              <p style={{ opacity: 0.8 }}>{runResult.unavailableReason}</p>
+            )}
+
+            {runState === 'done' && runResult?.analysis && (
+              <div style={{ marginTop: '0.75rem' }}>
+                <p style={{ fontWeight: 600 }}>{runResult.analysis.summary}</p>
+                {runResult.analysis.groups.map((g, i) => (
+                  <div
+                    key={i}
+                    style={{ margin: '0.5rem 0', padding: '0.5rem 0.75rem', borderLeft: '3px solid #0969da' }}
+                  >
+                    <div style={{ fontWeight: 600 }}>
+                      {g.title}{' '}
+                      <span style={{ fontWeight: 400, opacity: 0.7 }}>
+                        — explains {g.scenarioNames.length} of {failures.length} · {g.category} ·
+                        confidence {Math.round(g.confidence * 100)}%
+                      </span>
+                    </div>
+                    <p style={{ margin: '0.25rem 0' }}>{g.rootCause}</p>
+                    <p style={{ margin: '0.25rem 0' }}>
+                      <strong>Fix:</strong> {g.suggestedFix}
+                    </p>
+                    {g.suggestedLocator && (
+                      <p style={{ margin: '0.25rem 0' }}>
+                        Suggested locator: <code>{g.suggestedLocator.page}.{g.suggestedLocator.key}</code> →{' '}
+                        <code>{g.suggestedLocator.strategy}:{g.suggestedLocator.value}</code>{' '}
+                        <Link to="/autoheal">apply it in Auto-heal</Link>
+                      </p>
+                    )}
+                    <details>
+                      <summary style={{ cursor: 'pointer', opacity: 0.7 }}>Scenarios</summary>
+                      <ul style={{ margin: '0.25rem 0' }}>
+                        {g.scenarioNames.map((n) => (
+                          <li key={n}>{n}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
           {!llmAvailable && (
             <p style={{ opacity: 0.75 }}>
               No Groq API key is configured — "Analyze with Groq" will say so rather than explain

@@ -174,6 +174,37 @@ export function analyzeFailure(scenario: ScenarioResultInput): Promise<AnalyzeFa
   return sendJson<AnalyzeFailureResponse>('/api/failures/analyze', 'POST', scenario)
 }
 
+// Run-level triage: groups the latest run's failures by shared root cause. Analysing scenarios
+// one at a time cannot notice that five of six failures are one problem, which is the first
+// thing anyone wants to know.
+export interface FailureGroup {
+  title: string
+  category: FailureCategory
+  rootCause: string
+  suggestedFix: string
+  scenarioNames: string[]
+  suggestedLocator: SuggestedLocatorFix | null
+  isLikelyApplicationBug: boolean
+  confidence: number
+}
+
+export interface RunFailureAnalysis {
+  groups: FailureGroup[]
+  summary: string
+}
+
+export interface AnalyzeRunResponse {
+  available: boolean
+  analysis: RunFailureAnalysis | null
+  unavailableReason: string | null
+}
+
+// No body: the run analysed is always the latest one, so the client cannot ask about a run
+// that is no longer current.
+export function analyzeRun(): Promise<AnalyzeRunResponse> {
+  return sendJson<AnalyzeRunResponse>('/api/failures/analyze-run', 'POST', {})
+}
+
 // Runs the full pipeline including the sandbox compile, but writes nothing — so the user
 // can see verified output before it lands in the test project.
 export function previewFlow(request: GenerateFlowRequest): Promise<GenerateFlowResponse> {

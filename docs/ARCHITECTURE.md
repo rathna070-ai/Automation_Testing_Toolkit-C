@@ -74,7 +74,7 @@ project references to the toolkit at all, by design, so it stays runnable standa
 
 ## 2. Current status
 
-### Implemented — P1 through P21
+### Implemented — P1 through P22
 
 | Phase | Delivers | Key files |
 |---|---|---|
@@ -93,12 +93,17 @@ project references to the toolkit at all, by design, so it stays runnable standa
 | **P16** | Risk mitigation, all six items — adversarial-DOM injection tests proving `StaticValidator` (not prompt fencing) is the real trust boundary; `DriverContext` wraps `ChromeDriver` creation in an actionable error; the hand-written sample suite now runs against a local `TinyWebServer` fixture instead of `the-internet.herokuapp.com`; `GenerationResultCache` serves a repeated *unchanged* Preview from an in-memory cache (scoped to `WriteToProject:false` only — a cache hit must never silently skip writing a real Generate click) with a `Cached` flag surfaced through to the UI; a Windows Job Object (`ChromeProcessJob`/`ChildProcessFinder`, P/Invoke) kills every chromedriver/Chrome process the instant the API process dies, graceful or not — live-verified by force-killing the API mid-session and confirming both processes vanished while unrelated Chrome windows survived; Auto-heal's UI states its structural-change limit | `Execution/Generation/GenerationResultCache.cs`, `Inspector/{ChromeProcessJob,ChildProcessFinder}.cs`, `tests/WebTestToolkit.GeneratedTests/Support/{DriverContext,Hooks,TinyWebServer}.cs`, `frontend/src/pages/AutoHealPage.tsx` |
 | **P18** | Generation reliability, completed: the deterministic path is statically validated (item 1); `ActionType.Select` plus idempotent checkbox/radio steps that use the captured `Checked` state rather than blind-clicking a toggle (item 2); and the prompt now carries `bestLocator` — the winner `CapturedElement.BestLocator` already picks — instead of the full ranked `candidates` array, while keeping the real element state (options/required/maxLength) the model cannot derive for itself (item 3) | `Execution/Generation/{HybridTestCodeGenerator,ReferenceBundleBuilder}.cs`, `CodeGenerator/PageObjectGenerator.cs` |
 | **P19** | Flow persistence and regeneration — a recorded `TestFlow` is written to `%AppData%\WebTestToolkitlows` when its inspect session **stops** (the last moment the session is guaranteed to exist: `InspectorSessionManager` evicts after `CompletedRetention`, and a restart drops them outright). `GET/PUT/DELETE /api/flows` plus a saved-flow list on `FlowsPage`, so a flow recorded days ago can be reloaded and re-generated against a changed UI without re-recording — the thing `playwright codegen` cannot do, and which this toolkit could not do either until now. `FlowStore` mirrors `FileSettingsStore` (same root, `SemaphoreSlim`, write-temp-then-move) and takes its directory as a parameter so tests never touch the real `%AppData%`. Brings `WebTestToolkit.Api` its first test project | `Api/Services/FlowStore.cs`, `Api/Controllers/{Flows,Inspect}Controller.cs`, `frontend/src/pages/FlowsPage.tsx`, `tests/WebTestToolkit.Api.Tests/` |
+| **P22** | **Retired LLM code generation.** The LLM now produces data a human reviews or a deterministic generator consumes, and never code that ships — so `ScriptGenerationSkill`/`ScriptRepairSkill`, their prompts, `ReferenceBundleBuilder`, `GenerationResultCache` and the attempt/repair/fallback loop are gone. `HybridTestCodeGenerator` becomes `TestCodeGenerator` (generate → merge → validate → compile → write) and `WebTestToolkit.Execution` drops its `WebTestToolkit.Llm` project reference entirely. The freed effort went into the two skills that now carry the value: run-level failure triage that groups a whole run's failures by shared root cause (skill 8), and finishing P6's export schema — accepted edge cases exported as `TestCaseSource.EdgeCase`, and `LastRunStatus` populated from the latest run | `Execution/Generation/TestCodeGenerator.cs`, `Llm/Skills/RunFailureAnalysisSkill.cs`, `Export/TestCaseSuiteBuilder.cs`, `Api/Controllers/{Llm,Export}Controller.cs`, `frontend/src/pages/{Failures,Flows,Settings}Page.tsx` |
 | **P20** | Parallel-safe generated suite — `LocatorRepository`'s static cache is a `ConcurrentDictionary` and `PageLocators.Locators` is handed out read-only, so the instance every scenario shares can no longer be raced or mutated; feature-level parallelism (`ParallelScope.Fixtures`, degree 4) is enabled, which suits a generator that emits one feature per flow and keeps `[BeforeFeature]` usable, unlike scenario-level. Sample suite run time roughly halved | `tests/WebTestToolkit.GeneratedTests/Support/{LocatorRepository,ParallelExecution}.cs` |
 | **P21** | Assertion quality — new **WTT153** rejects a tautological assertion (`Assert.That(true)`, `Assert.IsTrue(true)`, `Assert.AreEqual(1, 1)`, `Assert.That(1, Is.EqualTo(1))`), the "pins down the absence of an obvious failure" shape that WTT151's substring check waved through; the deterministic emitter's own assertions now carry failure messages naming the element instead of a bare `Is.True`; and Stryker.NET runs weekly (never per-PR, never gating) to score whether the rules are actually *tested* rather than merely executed | `Execution/Generation/StaticValidator.cs`, `CodeGenerator/StepsGenerator.cs`, `stryker-config.json`, `docs/MUTATION-TESTING.md` |
 | **P19a** | The three highest-impact fixes from the external review: the Groq plan's tokens-per-minute allowance is a **setting** (`AppSettings.GroqTokensPerMinute`, read per call) rather than a constant, so upgrading the plan takes effect without a rebuild; a recorded `<select>` now generates `SelectElement.SelectByText` instead of `Clear()+SendKeys()`, which threw `InvalidElementStateException` on every flow containing a dropdown; and generated binding classes carry `[Scope(Feature = "...")]`, so two flows recorded against the same site no longer collide as ambiguous step definitions — previously a hard block on generating a second flow per site. Two bugs surfaced only by live testing: the generation cache keyed without the allowance (so raising it replayed a stale "plan too small" result) and `PersistedSettingsFile` silently dropped the new field on save | `Contracts/Models/{AppSettings,ActionType}.cs`, `CodeGenerator/{PageObjectGenerator,StepsGenerator,GherkinStepPlanner}.cs`, `Execution/Generation/{HybridTestCodeGenerator,BindingIndex,GenerationResultCache}.cs`, `Inspector/Overlay/inspector-overlay.js`, `Api/Services/FileSettingsStore.cs` |
 | **P17** | Export generated script files — `POST /api/export/generated-files/zip` zips whichever file set (`files`/`deterministicFiles`) the frontend already holds in memory, one entry per `GeneratedFile.RelativePath`, no regeneration triggered. Caught live during verification: the first version emitted a UTF-8 BOM per entry (`Encoding.UTF8`'s default preamble) that `File.WriteAllText` — what a real Generate actually writes with — never emits; fixed to an explicit no-BOM encoding and pinned with a dedicated regression test | `Export/GeneratedFilesZipWriter.cs`, `Api/Controllers/ExportController.cs`, `frontend/src/api/client.ts`, `frontend/src/pages/FlowsPage.tsx` |
 
-**Verified:** 225/225 backend tests (plus 5/5 opt-in `[Category("Browser")]` real-Chrome tests —
+**Verified:** 214/214 backend tests — *fewer than P21's 225 by design*: retiring the LLM codegen
+path deleted the ~20 tests covering its attempt/repair/fallback loop, and P22 added new ones for
+run-level triage and the export schema. The decisive check for P22 was not a unit test but an
+offline one: with the Groq API key cleared, record → generate → run completes end to end with no
+fallback message and no degraded path. (plus 5/5 opt-in `[Category("Browser")]` real-Chrome tests —
 `dotnet test --filter "Category=Browser"`, which now also live-proves P16 item 3's crash cleanup
 doesn't break normal session start), `dotnet build` clean (Debug + Release, 15 projects), frontend
 `tsc`/`vite build`/`oxlint` clean. `tests/WebTestToolkit.GeneratedTests` (the hand-written sample
@@ -499,25 +504,46 @@ OpenAI-compatible endpoint. Key facts that shape the design:
 - **Server-side key only** — never sent to the browser. `GET /api/settings` returns whether a key is
   configured, never its value.
 
-### Seven skills
+### The skills, and the line they respect
+
+> **The LLM produces data a human reviews, or data a deterministic generator consumes. It never
+> writes code that ships.**
 
 | # | Skill | Effort | Fallback when unavailable | Status |
 |---|---|---|---|---|
-| 1 | Script generation | high | Deterministic generator | ✅ P5 |
+| 1 | ~~Script generation~~ | high | — | ❌ **retired** — see below |
 | 2 | Step-label suggestion | low | Deterministic `StepLabeler` | ✅ P8 |
 | 3 | Assertion inference | medium | User captures assertions explicitly | ⬜ deferred |
 | 4 | Edge-case generation | medium | Happy path only | ✅ P9 |
 | 5 | Scenario Outline expansion | medium | Single non-parameterized scenario | ⬜ deferred (needs a `TestFlow` schema change) |
 | 6 | Test-case prose | low | Template text from labels | ✅ P6 |
-| 7 | Failure analysis | medium | Raw error + stack trace as-is | ✅ P4 |
+| 7 | Failure analysis (per scenario) | medium | Raw error + stack trace as-is | ✅ P4 |
+| 8 | Failure analysis (whole run) | medium | Per-scenario analysis, one at a time | ✅ |
+
+**Skill 1 was retired, along with its repair counterpart.** It tried to write compiling C#, gated
+by `StaticValidator`, a real `dotnet build` and a repair loop, falling back to the deterministic
+generator whenever any of that failed — and in practice it always failed: the Groq free tier allows
+8,000 tokens per minute counting prompt plus reserved completion, and the assembled codegen bundle
+needed ~16,000. Every generation was already landing on the deterministic path while the UI's "Use
+AI generation" checkbox implied otherwise.
+
+Everything retained is small — `failure-analysis.md` 1,321 chars, `test-case-prose.md` 2,000,
+`edge-case-generation.md` 2,146, `step-label-suggestion.md` 1,247, against the deleted
+`script-generation.md`'s 7,368 — so **every remaining call fits the free tier comfortably**. The
+toolkit's core record → generate → run loop now needs no API key at all.
+
+Skill 8 exists because skill 7 structurally cannot answer the first question anyone asks of a wall
+of red: *how many problems is this actually?* Analysing scenarios one at a time never sees the
+repetition. Skill 8 takes every failure at once plus the locator entries they depend on, and groups
+them by shared root cause, ordered by how many scenarios each explains.
 
 Every skill degrades gracefully — the tool stays fully usable with no API key configured, verified
-at every phase that touches Groq. Skills 3 and 5 are deferred rather than half-built: skill 3 has no
-real gap to fill (assertions are already hand-capturable), and skill 5 needs real `Examples`-table
+at every phase that touches Groq. Skills 3 and 5 remain deferred rather than half-built: skill 3 has
+no real gap to fill (assertions are already hand-capturable), and skill 5 needs real `Examples`-table
 support in `TestFlow` first — the same "don't half-build a schema change" discipline P6's own scope
 cut already established.
 
-### Generate → validate → repair loop
+### Generate → validate → compile loop
 
 ```
 captured TestFlow
