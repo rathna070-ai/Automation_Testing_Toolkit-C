@@ -662,8 +662,10 @@ public class StaticValidatorTests
     // "the model was tricked" vs. "the model made a mistake".
 
     // What a captured element carrying an injection payload actually looks like — the same
-    // shape ReferenceBundleBuilder serializes into the prompt today (AriaLabel/VisibleText
-    // survive the P18 DOM trim; only OuterHtmlSnippet/AncestorContext are dropped).
+    // shape an Inspect capture actually produces. Kept after the LLM codegen path was retired
+    // because the boundary it documents did not go away: captured page content still reaches
+    // the *retained* skills (step labels, edge cases), and StaticValidator is still what stops
+    // any generated output — from a template or anything else — writing outside its lane.
     private static readonly CapturedElement AdversarialElement = new()
     {
         TagName = "button",

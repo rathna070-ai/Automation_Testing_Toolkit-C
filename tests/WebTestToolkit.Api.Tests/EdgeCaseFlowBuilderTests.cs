@@ -1,8 +1,8 @@
 using WebTestToolkit.Contracts.Models;
-using WebTestToolkit.Execution.Generation;
+using WebTestToolkit.Api.Services;
 using WebTestToolkit.Llm.Skills;
 
-namespace WebTestToolkit.Execution.Tests;
+namespace WebTestToolkit.Api.Tests;
 
 public class EdgeCaseFlowBuilderTests
 {

@@ -52,8 +52,7 @@ public class FileSettingsStore : ISettingsStore
             var persisted = new PersistedSettingsFile
             {
                 GroqApiKeyProtected = string.IsNullOrEmpty(settings.GroqApiKey) ? null : Protect(settings.GroqApiKey),
-                GroqModel = settings.GroqModel,
-                GroqTokensPerMinute = settings.GroqTokensPerMinute
+                GroqModel = settings.GroqModel
             };
 
             var json = JsonSerializer.Serialize(persisted, new JsonSerializerOptions { WriteIndented = true });
@@ -82,12 +81,7 @@ public class FileSettingsStore : ISettingsStore
                 GroqApiKey = persisted.GroqApiKeyProtected is null ? null : Unprotect(persisted.GroqApiKeyProtected),
                 GroqModel = string.IsNullOrWhiteSpace(persisted.GroqModel)
                     ? new AppSettings().GroqModel
-                    : persisted.GroqModel,
-                // 0 means the field predates this setting (a settings file written before it
-                // existed), not a deliberate "no allowance" — fall back to the default.
-                GroqTokensPerMinute = persisted.GroqTokensPerMinute > 0
-                    ? persisted.GroqTokensPerMinute
-                    : new AppSettings().GroqTokensPerMinute
+                    : persisted.GroqModel
             };
         }
         catch (Exception ex) when (ex is JsonException or CryptographicException or IOException)
@@ -118,6 +112,5 @@ public class FileSettingsStore : ISettingsStore
     {
         public string? GroqApiKeyProtected { get; set; }
         public string GroqModel { get; set; } = "";
-        public int GroqTokensPerMinute { get; set; }
     }
 }

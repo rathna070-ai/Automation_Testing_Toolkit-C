@@ -1,7 +1,6 @@
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using WebTestToolkit.Contracts.Models;
-using WebTestToolkit.Llm.Skills;
 
 namespace WebTestToolkit.Execution.Generation;
 

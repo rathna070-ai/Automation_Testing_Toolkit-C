@@ -11,12 +11,12 @@ namespace WebTestToolkit.Api.Controllers;
 [Route("api/flows")]
 public class FlowsController : ControllerBase
 {
-    private readonly HybridTestCodeGenerator _generator;
+    private readonly TestCodeGenerator _generator;
     private readonly EdgeCaseGenerationSkill _edgeCaseSkill;
     private readonly FlowStore _flows;
 
     public FlowsController(
-        HybridTestCodeGenerator generator, EdgeCaseGenerationSkill edgeCaseSkill, FlowStore flows)
+        TestCodeGenerator generator, EdgeCaseGenerationSkill edgeCaseSkill, FlowStore flows)
     {
         _generator = generator;
         _edgeCaseSkill = edgeCaseSkill;
@@ -76,7 +76,7 @@ public class FlowsController : ControllerBase
         if (request.Flow.Steps.Count == 0)
             return BadRequest(new { error = "Flow has no steps." });
 
-        var options = new GenerationOptions(request.UseLlm, request.MaxRepairAttempts, writeToProject);
+        var options = new GenerationOptions(writeToProject);
         var result = await _generator.GenerateAsync(request.Flow, options, progress: null, ct);
 
         return Ok(GenerateFlowResponse.From(result));

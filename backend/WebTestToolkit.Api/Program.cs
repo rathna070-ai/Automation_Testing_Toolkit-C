@@ -39,15 +39,10 @@ builder.Services.AddWebTestToolkitLlm();
 // Singleton: the sandbox owns one warm directory and serializes access to it, so
 // concurrent generations queue rather than trampling each other's build output.
 builder.Services.AddSingleton<BuildSandbox>();
-builder.Services.AddSingleton<ReferenceBundleBuilder>();
 builder.Services.AddSingleton<GeneratedProjectWriter>();
-// Singleton, not scoped: the whole point is surviving across requests — a preview clicked
-// twice with nothing changed is two separate HTTP requests, so a per-request cache would
-// never see its own entry.
-builder.Services.AddSingleton<GenerationResultCache>();
 // Singleton to match FileSettingsStore: both own a SemaphoreSlim guarding their own files.
 builder.Services.AddSingleton<FlowStore>();
-builder.Services.AddScoped<HybridTestCodeGenerator>();
+builder.Services.AddScoped<TestCodeGenerator>();
 
 // Browser sessions outlive the request that opened them; the manager is a singleton and
 // closes any still-open Chrome windows when the host shuts down.

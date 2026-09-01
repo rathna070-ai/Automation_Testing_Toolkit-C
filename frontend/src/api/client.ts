@@ -11,13 +11,11 @@ export interface HealthResponse {
 export interface SettingsResponse {
   groqModel: string
   apiKeyConfigured: boolean
-  groqTokensPerMinute: number
 }
 
 export interface UpdateSettingsRequest {
   groqApiKey?: string | null
   groqModel?: string | null
-  groqTokensPerMinute?: number | null
 }
 
 export interface LlmStatusResponse {
@@ -97,12 +95,7 @@ export interface GenerationAttempt {
   issues: ValidationIssue[]
 }
 
-export type GenerationSource =
-  | 'Deterministic'
-  | 'LlmVerified'
-  | 'LlmRepaired'
-  | 'DeterministicFallback'
-  | 'Failed'
+export type GenerationSource = 'Deterministic' | 'Failed'
 
 export interface GenerateFlowResponse {
   source: GenerationSource
@@ -111,13 +104,7 @@ export interface GenerateFlowResponse {
   attempts: GenerationAttempt[]
   fallbackReason: string | null
   writtenPaths: string[]
-  totalPromptTokens: number
-  totalCompletionTokens: number
   totalDurationMs: number
-  // True when this result came from the server's own cache (an unchanged Preview re-run)
-  // rather than a fresh attempt — rides alongside `source`, which still says which path
-  // (LLM/deterministic) originally produced the code.
-  cached: boolean
 }
 
 // Mirrors backend TestFlow/TestStep (Contracts/Models). Kept here rather than in inspect.ts
@@ -140,10 +127,11 @@ export interface TestFlow {
   steps: TestFlowStep[]
 }
 
+// No useLlm/maxRepairAttempts: generation is deterministic. NOTE the `useLlm` on
+// ExportTestCasesRequest below is a *different* flag — it drives the test-case prose skill,
+// which is retained.
 export interface GenerateFlowRequest {
   flow: TestFlow
-  useLlm: boolean
-  maxRepairAttempts?: number
 }
 
 async function getJson<T>(path: string): Promise<T> {

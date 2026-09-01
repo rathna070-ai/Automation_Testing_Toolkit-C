@@ -4,23 +4,20 @@ namespace WebTestToolkit.Contracts.Models;
 // silently shipping a fallback would hide a real signal about prompt quality.
 public enum GenerationSource
 {
-    // LLM was off or unconfigured; deterministic output was the intent, not a fallback.
+    // The deterministic generator's output, validated and compiled. The only success value
+    // since the LLM codegen path was retired — LlmVerified/LlmRepaired/DeterministicFallback
+    // described a hybrid loop that no longer exists.
     Deterministic,
-    // LLM's first attempt validated and compiled.
-    LlmVerified,
-    // LLM's output compiled only after one or more repair round-trips.
-    LlmRepaired,
-    // Every LLM attempt failed; we shipped the deterministic output instead.
-    DeterministicFallback,
     // Even the deterministic output failed to compile — something is wrong with the project.
     Failed
 }
 
 public enum GenerationAttemptKind
 {
-    Deterministic,
-    LlmInitial,
-    LlmRepair
+    // One kind, kept as an enum rather than collapsed away: an attempt list is still the shape
+    // the UI renders, and a future non-LLM attempt kind (a retry after clearing the sandbox,
+    // say) would slot in here.
+    Deterministic
 }
 
 public enum IssueSource
@@ -76,14 +73,5 @@ public class CodeGenerationResult
     public string? FallbackReason { get; init; }
     public IReadOnlyList<string> WrittenPaths { get; init; } = [];
 
-    // True when this result came back from GenerationResultCache instead of a fresh LLM call
-    // — the "click Preview twice without changing anything" case. The UI's provenance display
-    // already always shows which path produced the code (LlmVerified/Deterministic/etc.); this
-    // rides alongside it rather than replacing it, so a cache hit never looks indistinguishable
-    // from a fresh attempt.
-    public bool Cached { get; init; }
-
-    public int TotalPromptTokens => Attempts.Sum(a => a.PromptTokens);
-    public int TotalCompletionTokens => Attempts.Sum(a => a.CompletionTokens);
     public int TotalDurationMs => Attempts.Sum(a => a.DurationMs);
 }

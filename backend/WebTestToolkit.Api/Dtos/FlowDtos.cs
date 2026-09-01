@@ -2,7 +2,10 @@ using WebTestToolkit.Contracts.Models;
 
 namespace WebTestToolkit.Api.Dtos;
 
-public record GenerateFlowRequest(TestFlow Flow, bool UseLlm = true, int MaxRepairAttempts = 2);
+// No UseLlm/MaxRepairAttempts: generation is deterministic, so there is no model to opt into
+// and no repair loop to bound. WriteToProject is decided by which endpoint is called
+// (preview vs generate), not by the caller.
+public record GenerateFlowRequest(TestFlow Flow);
 
 // Suggestions only — nothing here is written or compiled. Each option's Flow is already a
 // complete, independently-generatable TestFlow (see EdgeCaseFlowBuilder); accepting one is
@@ -31,10 +34,7 @@ public record GenerateFlowResponse(
     IReadOnlyList<GenerationAttemptDto> Attempts,
     string? FallbackReason,
     IReadOnlyList<string> WrittenPaths,
-    int TotalPromptTokens,
-    int TotalCompletionTokens,
-    int TotalDurationMs,
-    bool Cached)
+    int TotalDurationMs)
 {
     public static GenerateFlowResponse From(CodeGenerationResult result) => new(
         result.Source.ToString(),
@@ -45,8 +45,5 @@ public record GenerateFlowResponse(
             a.PromptTokens, a.CompletionTokens, a.Issues)).ToList(),
         result.FallbackReason,
         result.WrittenPaths,
-        result.TotalPromptTokens,
-        result.TotalCompletionTokens,
-        result.TotalDurationMs,
-        result.Cached);
+        result.TotalDurationMs);
 }

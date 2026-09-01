@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using WebTestToolkit.CodeGenerator;
 
 namespace WebTestToolkit.Execution.Generation;
 
@@ -60,5 +61,58 @@ public static partial class BindingIndex
         var unescaped = Regex.Replace(pattern, @"\\(?=[ '""!,.\-:;()])", "");
         var placeholders = Regex.Replace(unescaped, @"\((?:\?<[^>]+>)?[^)]*\)", "{}");
         return Regex.Replace(placeholders, @"\s+", " ").Trim();
+    }
+
+    // Every binding already declared by *other* flows in the generated project. Moved here from
+    // ReferenceBundleBuilder when the LLM codegen path was retired: that class existed to
+    // assemble a prompt, but this method has nothing to do with prompting — it is a binding
+    // index over the project, which is exactly what this class is. StaticValidator's
+    // WTT130/WTT131 conflict checks are its only caller, on both the deterministic and (while
+    // it existed) the LLM path.
+    //
+    // Files belonging to the flow being regenerated are excluded: they are about to be
+    // replaced, so listing them would report a flow as conflicting with its own previous self.
+    public static List<BindingPattern> ExistingBindings(string flowName)
+    {
+        var projectDir = SolutionPaths.GeneratedTestsDirectory();
+        var bindings = new List<BindingPattern>();
+
+        foreach (var relative in EnumerateStepSources(projectDir))
+        {
+            if (BelongsToFlow(relative, flowName))
+                continue;
+
+            var path = Path.Combine(projectDir, relative.Replace('/', Path.DirectorySeparatorChar));
+            if (File.Exists(path))
+                bindings.AddRange(Extract(relative, File.ReadAllText(path)));
+        }
+
+        return bindings;
+    }
+
+    private static IEnumerable<string> EnumerateStepSources(string projectDir)
+    {
+        var dir = Path.Combine(projectDir, "Steps");
+        if (!Directory.Exists(dir))
+            yield break;
+
+        foreach (var path in Directory.EnumerateFiles(dir, "*.cs", SearchOption.TopDirectoryOnly).OrderBy(p => p, StringComparer.Ordinal))
+        {
+            // Reqnroll's generated code-behind duplicates every binding attribute it can see;
+            // indexing it would report every step as colliding with itself.
+            if (path.EndsWith(".feature.cs", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            yield return $"Steps/{Path.GetFileName(path)}";
+        }
+    }
+
+    private static bool BelongsToFlow(string relativePath, string flowName)
+    {
+        // flowName is free text a user typed; TestFlowCodeGenerator writes its files under the
+        // sanitized identifier, so the comparison has to use the same one or a flow named
+        // "flow new 1" would never recognize its own about-to-be-replaced files.
+        var className = Naming.ToPascalCaseIdentifier(flowName);
+        return Path.GetFileName(relativePath).Equals($"{className}Steps.cs", StringComparison.OrdinalIgnoreCase);
     }
 }

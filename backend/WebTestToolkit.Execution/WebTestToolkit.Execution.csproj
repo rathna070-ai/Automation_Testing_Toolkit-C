@@ -3,7 +3,6 @@
   <ItemGroup>
     <ProjectReference Include="..\WebTestToolkit.Contracts\WebTestToolkit.Contracts.csproj" />
     <ProjectReference Include="..\WebTestToolkit.CodeGenerator\WebTestToolkit.CodeGenerator.csproj" />
-    <ProjectReference Include="..\WebTestToolkit.Llm\WebTestToolkit.Llm.csproj" />
   </ItemGroup>
 
   <ItemGroup>

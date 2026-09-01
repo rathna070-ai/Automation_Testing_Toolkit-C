@@ -39,7 +39,7 @@ public class DeterministicOutputObeysRulesTests
         ]
     };
 
-    // Mirrors how HybridTestCodeGenerator turns generator output into a candidate set,
+    // Mirrors how TestCodeGenerator turns generator output into a candidate set,
     // minus the locator JSON (which the validator inspects via the locators array).
     private static GeneratedFileSet ToFileSet(IReadOnlyDictionary<string, string> files, TestFlow flow)
     {

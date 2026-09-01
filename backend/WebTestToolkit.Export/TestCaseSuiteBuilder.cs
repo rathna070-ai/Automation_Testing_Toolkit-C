@@ -7,7 +7,7 @@ namespace WebTestToolkit.Export;
 // code generator turns into a Reqnroll suite, not a separate capture path.
 //
 // Deterministic prose is always built first and is the return value whenever the LLM path is
-// off, unavailable, or returns something that doesn't parse — mirrors HybridTestCodeGenerator's
+// off, unavailable, or returns something that doesn't parse — mirrors TestCodeGenerator's
 // deterministic-first, LLM-enhances design from P5, just without that pattern's sandbox-compile
 // machinery: there is no way for wording to fail to "compile", so there is nothing to retry or
 // repair, only a plain success-or-fall-back.

@@ -1,6 +1,5 @@
 using System.Text.RegularExpressions;
 using WebTestToolkit.Contracts.Models;
-using WebTestToolkit.Llm.Skills;
 
 namespace WebTestToolkit.Execution.Generation;
 

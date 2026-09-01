@@ -20,8 +20,7 @@ public class SettingsController : ControllerBase
     public async Task<ActionResult<SettingsResponse>> Get(CancellationToken ct)
     {
         var settings = await _settingsStore.GetAsync(ct);
-        return Ok(new SettingsResponse(
-            settings.GroqModel, !string.IsNullOrWhiteSpace(settings.GroqApiKey), settings.GroqTokensPerMinute));
+        return Ok(new SettingsResponse(settings.GroqModel, !string.IsNullOrWhiteSpace(settings.GroqApiKey)));
     }
 
     [HttpPut]
@@ -32,17 +31,10 @@ public class SettingsController : ControllerBase
         var updated = new AppSettings
         {
             GroqApiKey = request.GroqApiKey ?? current.GroqApiKey,
-            GroqModel = string.IsNullOrWhiteSpace(request.GroqModel) ? current.GroqModel : request.GroqModel,
-            // Ignore a non-positive value rather than persisting one that would disable the
-            // guard entirely — ResolveMaxRequestTokensAsync would fall back anyway, but a
-            // stored 0 reads like a deliberate setting when it is really a bad input.
-            GroqTokensPerMinute = request.GroqTokensPerMinute is > 0
-                ? request.GroqTokensPerMinute.Value
-                : current.GroqTokensPerMinute
+            GroqModel = string.IsNullOrWhiteSpace(request.GroqModel) ? current.GroqModel : request.GroqModel
         };
 
         await _settingsStore.SaveAsync(updated, ct);
-        return Ok(new SettingsResponse(
-            updated.GroqModel, !string.IsNullOrWhiteSpace(updated.GroqApiKey), updated.GroqTokensPerMinute));
+        return Ok(new SettingsResponse(updated.GroqModel, !string.IsNullOrWhiteSpace(updated.GroqApiKey)));
     }
 }

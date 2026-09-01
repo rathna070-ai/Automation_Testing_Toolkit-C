@@ -3,7 +3,11 @@ using System.Text.RegularExpressions;
 using WebTestToolkit.Contracts.Models;
 using WebTestToolkit.Llm.Skills;
 
-namespace WebTestToolkit.Execution.Generation;
+// Moved here from WebTestToolkit.Execution when the LLM codegen path was retired. It converts
+// an EdgeCaseGenerationSkill suggestion into a real TestFlow, so it genuinely depends on the
+// Llm project — and leaving it in Execution is precisely what would have forced Execution to
+// keep referencing Llm. Api already references both, and FlowsController is its only consumer.
+namespace WebTestToolkit.Api.Services;
 
 // Turns one LLM-suggested edge case into a real, independently-generatable TestFlow. This is
 // deliberately plain C#, not another model call: the LLM only ever proposes which values and

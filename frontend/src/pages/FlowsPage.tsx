@@ -24,13 +24,10 @@ interface EdgeCaseRunState {
   error?: string
 }
 
-// The provenance badge. Which path produced the code is a real quality signal about the
-// prompt — shipping a fallback silently would hide it.
+// The provenance badge. Two outcomes now that generation is deterministic: it compiled, or
+// it did not. The three LLM sources went with the codegen path.
 const SOURCE_LABELS: Record<GenerationSource, { text: string; tone: string }> = {
-  LlmVerified: { text: '✨ AI-generated · compiled ✓', tone: '#1a7f37' },
-  LlmRepaired: { text: '✨ AI-generated · repaired · compiled ✓', tone: '#9a6700' },
-  Deterministic: { text: '⚙ Deterministic (AI disabled)', tone: '#57606a' },
-  DeterministicFallback: { text: '⚙ Deterministic fallback — the AI version did not pass', tone: '#bc4c00' },
+  Deterministic: { text: '⚙ Generated · compiled ✓', tone: '#1a7f37' },
   Failed: { text: '✗ Generation failed', tone: '#cf222e' },
 }
 
@@ -47,7 +44,6 @@ export function FlowsPage() {
   const handedOffFlow = flowFromLocationState(location.state)
 
   const [flow, setFlow] = useState<TestFlow>(handedOffFlow ?? SAMPLE_FLOW)
-  const [useLlm, setUseLlm] = useState(true)
   const [state, setState] = useState<'idle' | 'running' | 'done' | 'error'>('idle')
   const [result, setResult] = useState<GenerateFlowResponse | null>(null)
   const [error, setError] = useState('')
@@ -124,7 +120,7 @@ export function FlowsPage() {
     setEdgeCaseRuns((prev) => ({ ...prev, [option.nameSuffix]: { status: 'running' } }))
     try {
       const call = write ? generateFlow : previewFlow
-      const response = await call({ flow: option.flow, useLlm, maxRepairAttempts: 2 })
+      const response = await call({ flow: option.flow })
       setEdgeCaseRuns((prev) => ({ ...prev, [option.nameSuffix]: { status: 'done', response } }))
     } catch (e) {
       setEdgeCaseRuns((prev) => ({ ...prev, [option.nameSuffix]: { status: 'error', error: String(e) } }))
@@ -146,7 +142,7 @@ export function FlowsPage() {
     setError('')
     try {
       const call = write ? generateFlow : previewFlow
-      const response = await call({ flow, useLlm, maxRepairAttempts: 2 })
+      const response = await call({ flow })
       setResult(response)
       setSelectedFile(response.files[0]?.relativePath ?? null)
       setState('done')
@@ -223,10 +219,6 @@ export function FlowsPage() {
       </section>
 
       <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', margin: '1rem 0', flexWrap: 'wrap' }}>
-        <label>
-          <input type="checkbox" checked={useLlm} onChange={(e) => setUseLlm(e.target.checked)} />{' '}
-          Use AI generation (falls back to the deterministic generator if it fails)
-        </label>
         <button onClick={() => run(false)} disabled={state === 'running'}>
           {state === 'running' ? 'Working…' : 'Preview (writes nothing)'}
         </button>
@@ -293,11 +285,6 @@ export function FlowsPage() {
         <>
           <p style={{ color: SOURCE_LABELS[result.source]?.tone, fontWeight: 600 }}>
             {SOURCE_LABELS[result.source]?.text ?? result.source}
-            {result.cached && (
-              <span style={{ marginLeft: '0.5rem', fontWeight: 400, opacity: 0.7 }}>
-                (cached — nothing changed since the last run)
-              </span>
-            )}
           </p>
 
           {result.fallbackReason && (
@@ -307,8 +294,7 @@ export function FlowsPage() {
           )}
 
           <p>
-            {result.attempts.length} attempt(s) · {result.totalDurationMs} ms ·{' '}
-            {result.totalPromptTokens + result.totalCompletionTokens} tokens
+            {result.totalDurationMs} ms
             {result.writtenPaths.length > 0
               ? ` · ${result.writtenPaths.length} files written`
               : ' · nothing written (preview)'}

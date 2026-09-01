@@ -14,8 +14,6 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient<GroqClient>();
         services.AddScoped<IChatClient>(sp => sp.GetRequiredService<GroqClient>());
         services.AddScoped<FailureAnalysisSkill>();
-        services.AddScoped<ScriptGenerationSkill>();
-        services.AddScoped<ScriptRepairSkill>();
         services.AddScoped<TestCaseProseSkill>();
         services.AddScoped<StepLabelSuggestionSkill>();
         services.AddScoped<EdgeCaseGenerationSkill>();
