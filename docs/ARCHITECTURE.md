@@ -104,7 +104,19 @@ project references to the toolkit at all, by design, so it stays runnable standa
 check was not a unit test: the wrong-flow bug lived entirely in how a page was *reached*, so it was
 verified by exporting `test445` and confirming all 13 of its real steps appear with no sample
 wording, and by exporting it with an edge case ticked and getting TC-001 recorded + TC-002 edgeCase
-— the path that existed server-side since P22 but no UI could reach. — *fewer than P21's 225 by design*: retiring the LLM codegen
+— the path that existed server-side since P22 but no UI could reach.
+
+Plus 5/5 opt-in `[Category("Browser")]` real-Chrome tests. Running those by hand caught a stale
+assertion no automated run would have: `CapturesRealElementStateForSelectCheckboxAndMaxLength` still
+expected a `<select>` to arrive as `ActionType.Type`, which is the pre-P22 behaviour that generated
+`Clear()+SendKeys()` and threw at runtime. The test was asserting the bug. Being `[Explicit]`, it sat
+outside both the default run and CI, so P22 changed select handling without it ever being exercised
+— a reminder that an opt-in suite needs running deliberately when the code it covers changes.
+
+The `@liveSite` suites are excluded from CI by design and currently 1/3: `NertFlow` asserts an error
+element after a *successful* login, and `Test445Flow` completes all 13 steps then fails on a brittle
+`#cart_contents_container > div` selector. Both are recording-quality problems — the second is
+precisely what Auto-heal exists for — not toolkit defects. — *fewer than P21's 225 by design*: retiring the LLM codegen
 path deleted the ~20 tests covering its attempt/repair/fallback loop, and P22 added new ones for
 run-level triage and the export schema. The decisive check for P22 was not a unit test but an
 offline one: with the Groq API key cleared, record → generate → run completes end to end with no

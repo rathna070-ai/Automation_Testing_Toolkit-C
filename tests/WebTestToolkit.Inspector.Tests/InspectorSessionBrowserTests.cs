@@ -265,8 +265,15 @@ public class InspectorSessionBrowserTests
             // click captured against the <select> itself (target resolution quirk of a
             // native dropdown with no real open/close UI in headless mode) — that stray
             // click carries no value or options and isn't what this test is about; the
-            // `change`-driven capture (ActionType.Type) is the one carrying real state.
-            var country = steps.Single(s => s.Element?.TagName == "select" && s.ActionType == ActionType.Type);
+            // `change`-driven capture is the one carrying real state.
+            //
+            // That capture is ActionType.Select, not Type. It was Type until P22, which is
+            // exactly the bug that change fixed: a <select> recorded as Type generated
+            // Clear()+SendKeys(), and Clear() on a non-editable element throws. This
+            // assertion asserted the broken behaviour, and being [Explicit] meant neither the
+            // default run nor CI caught it — it only surfaced when the Browser category was
+            // run by hand.
+            var country = steps.Single(s => s.Element?.TagName == "select" && s.ActionType == ActionType.Select);
             var agree = steps.Single(s => s.Element?.Id == "agree");
 
             Assert.Multiple(() =>
