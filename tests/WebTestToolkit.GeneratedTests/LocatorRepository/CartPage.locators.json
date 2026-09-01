@@ -1,0 +1,13 @@
+{
+  "url": "https://www.saucedemo.com/",
+  "locators": {
+    "_1SauceLabsBackpackcarryAllTheThingsElement": {
+      "strategy": "css",
+      "value": "[data-test=\"inventory-item\"]"
+    },
+    "QTYDescription1SauceLabsBackpackcarryElement": {
+      "strategy": "css",
+      "value": "#cart_contents_container > div"
+    }
+  }
+}

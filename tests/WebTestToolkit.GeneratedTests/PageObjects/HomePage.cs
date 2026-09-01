@@ -51,6 +51,17 @@ public class HomePage
         FindVisible("LoginButton").Click();
     }
 
+    private IWebElement FindVisible(string locatorKey)
+    {
+        var entry = _locators.Locators[locatorKey];
+        var by = LocatorRepository.ToBy(entry);
+        return _wait.Until(driver =>
+        {
+            var element = driver.FindElement(by);
+            return element.Displayed ? element : null;
+        });
+    }
+
     public void IClickTheEpicSadfaceUsernameAndPasswordDoN()
     {
         FindVisible("EpicSadfaceUsernameAndPasswordDoNElement").Click();
@@ -69,17 +80,6 @@ public class HomePage
     public void IClickTheLoginButtonButton2()
     {
         FindVisible("LoginButton2").Click();
-    }
-
-    private IWebElement FindVisible(string locatorKey)
-    {
-        var entry = _locators.Locators[locatorKey];
-        var by = LocatorRepository.ToBy(entry);
-        return _wait.Until(driver =>
-        {
-            var element = driver.FindElement(by);
-            return element.Displayed ? element : null;
-        });
     }
 
     public void IClickThePassword2()

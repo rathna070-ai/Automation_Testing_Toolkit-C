@@ -22,9 +22,24 @@ public class InventoryPage
         _driver.Navigate().GoToUrl(_locators.Url);
     }
 
-    public void IClickTheAddToCartSauceLabsBikeLightButton()
+    public void IClickTheInventoryContainer()
     {
-        FindVisible("AddToCartSauceLabsBikeLightButton").Click();
+        FindVisible("InventoryContainerElement").Click();
+    }
+
+    public void IClickTheSauceLabsBackpackcarryAllTheThings()
+    {
+        FindVisible("SauceLabsBackpackcarryAllTheThingsElement").Click();
+    }
+
+    public void IClickThe2999()
+    {
+        FindVisible("_2999Element").Click();
+    }
+
+    public void IClickTheAddToCartSauceLabsBackpackButton()
+    {
+        FindVisible("AddToCartSauceLabsBackpackButton").Click();
     }
 
     public void IClickThe1Link()
@@ -43,9 +58,9 @@ public class InventoryPage
         });
     }
 
-    public void IClickTheSauceLabsBackpackcarryAllTheThings()
+    public void IClickTheAddToCartSauceLabsBikeLightButton()
     {
-        FindVisible("SauceLabsBackpackcarryAllTheThingsElement").Click();
+        FindVisible("AddToCartSauceLabsBikeLightButton").Click();
     }
 
     public void IClickTheALink()
