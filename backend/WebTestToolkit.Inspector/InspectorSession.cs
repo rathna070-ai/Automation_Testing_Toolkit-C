@@ -132,7 +132,11 @@ public sealed class InspectorSession : IDisposable
         // logger reaches this static factory (StartAsync's public signature has no room for
         // one without a bigger, riskier change than this cleanup is worth), and a failure
         // here must never block a session from starting.
-        ChromeProcessJob.TryAssign(service.ProcessId, NullLogger.Instance);
+        // Guarded rather than assumed: ChromeProcessJob is [SupportedOSPlatform("windows")]
+        // because Job Objects are a Windows facility. The check makes that explicit instead of
+        // leaving a CA1416 warning, and on any other OS the cleanup simply does not apply.
+        if (OperatingSystem.IsWindows())
+            ChromeProcessJob.TryAssign(service.ProcessId, NullLogger.Instance);
 
         return driver;
     }

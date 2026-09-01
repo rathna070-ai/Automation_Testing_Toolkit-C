@@ -157,4 +157,72 @@ public class StepLabelerTests
         Assert.That(label, Is.EqualTo("I enter the password"));
         Assert.That(label, Does.Not.Contain("SuperSecret"));
     }
+
+    // --- Label quality (P23) --------------------------------------------------------------
+    //
+    // Both defects below came out of a real recorded flow (Test445), not from theory.
+
+    // The locator-key path has always deduped the element-kind suffix
+    // (LocatorKeyFor's `baseName.EndsWith(suffix)` check); the label path appended it
+    // unconditionally, so an element already named "...button" got it twice.
+    [Test]
+    public void ButtonWhoseNameAlreadyEndsInButton_DoesNotGetItTwice()
+    {
+        var label = StepLabeler.ActionLabel(
+            ActionType.Click, Element("button", id: "login-button", text: "Login"), null);
+
+        Assert.That(label, Is.EqualTo("I click the login button"));
+        Assert.That(label, Does.Not.Contain("button button"));
+    }
+
+    [Test]
+    public void ButtonWhoseNameDoesNotEndInButton_StillGetsTheNoun()
+    {
+        var label = StepLabeler.ActionLabel(
+            ActionType.Click, Element("button", id: "submit", text: "Submit"), null);
+
+        Assert.That(label, Is.EqualTo("I click the submit button"));
+    }
+
+    [Test]
+    public void LinkWhoseNameAlreadyEndsInLink_DoesNotGetItTwice()
+    {
+        var label = StepLabeler.ActionLabel(
+            ActionType.Click, Element("a", id: "help-link", text: "Help"), null);
+
+        Assert.That(label, Does.Not.Contain("link link"));
+    }
+
+    // ToPascalCase keeps only [A-Za-z0-9], which is correct for an identifier and destructive
+    // for prose: a "$29.99" price became "2999", giving "I click the 2999". The label is a
+    // sentence, so it keeps the captured text; only the locator key needs sanitizing.
+    [Test]
+    public void PriceLikeText_KeepsItsRawFormInTheLabel()
+    {
+        var label = StepLabeler.ActionLabel(
+            ActionType.Click, Element("span", text: "$29.99"), null);
+
+        Assert.That(label, Is.EqualTo("I click the $29.99"));
+    }
+
+    // The sanitized form is still what a locator key uses — the two paths differ on purpose.
+    [Test]
+    public void PriceLikeText_StillProducesAnIdentifierSafeLocatorKey()
+    {
+        var key = new StepLabeler().LocatorKeyFor("CartPage", Element("span", text: "$29.99"));
+
+        Assert.That(key, Does.Not.Contain("$"));
+        Assert.That(key, Does.Not.Contain("."));
+    }
+
+    // Ordinary text is unaffected — the raw-text fallback only applies when PascalCasing has
+    // left no letters at all.
+    [Test]
+    public void OrdinaryText_IsStillHumanizedNotEchoedRaw()
+    {
+        var label = StepLabeler.ActionLabel(
+            ActionType.Click, Element("span", text: "Add To Cart"), null);
+
+        Assert.That(label, Is.EqualTo("I click the add to cart"));
+    }
 }

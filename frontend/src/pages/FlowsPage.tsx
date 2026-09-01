@@ -1,17 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { FlowPicker } from '../components/FlowPicker'
 import {
-  deleteSavedFlow,
   downloadGeneratedFilesZip,
   generateFlow,
-  getSavedFlow,
-  listSavedFlows,
   previewFlow,
+  saveFlow,
   suggestEdgeCases,
   type EdgeCaseOption,
   type GenerateFlowResponse,
   type GenerationSource,
-  type SavedFlowSummary,
   type TestFlow,
 } from '../api/client'
 import { SAMPLE_FLOW } from './sampleFlow'
@@ -43,7 +41,10 @@ export function FlowsPage() {
   const location = useLocation()
   const handedOffFlow = flowFromLocationState(location.state)
 
-  const [flow, setFlow] = useState<TestFlow>(handedOffFlow ?? SAMPLE_FLOW)
+  // No `?? SAMPLE_FLOW`: arriving here from the nav bar used to silently load the built-in
+  // sample, which is how a sample suite got generated and committed by accident. Choosing the
+  // sample is now a deliberate button in FlowPicker.
+  const [flow, setFlow] = useState<TestFlow | null>(handedOffFlow)
   const [state, setState] = useState<'idle' | 'running' | 'done' | 'error'>('idle')
   const [result, setResult] = useState<GenerateFlowResponse | null>(null)
   const [error, setError] = useState('')
@@ -51,11 +52,6 @@ export function FlowsPage() {
   const [compareDeterministic, setCompareDeterministic] = useState(false)
   const [downloadError, setDownloadError] = useState('')
 
-  // Saved flows (P19). A recording is persisted server-side when its inspect session stops,
-  // so this list is how you get back to a flow recorded days ago — the case that used to be
-  // impossible, because the flow only ever lived in the tab that recorded it.
-  const [savedFlows, setSavedFlows] = useState<SavedFlowSummary[]>([])
-  const [savedError, setSavedError] = useState('')
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
 
   const [edgeCaseState, setEdgeCaseState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
@@ -65,36 +61,14 @@ export function FlowsPage() {
 
   const isSample = flow === SAMPLE_FLOW
 
-  function refreshSavedFlows() {
-    listSavedFlows()
-      .then(setSavedFlows)
-      .catch((e) => setSavedError(String(e)))
-  }
-
-  useEffect(refreshSavedFlows, [])
-
-  async function loadSavedFlow(name: string) {
-    setSavedError('')
-    try {
-      setFlow(await getSavedFlow(name))
-      setResult(null)
-      setState('idle')
-    } catch (e) {
-      setSavedError(String(e))
-    }
-  }
-
-  async function removeSavedFlow(name: string) {
-    setSavedError('')
-    try {
-      await deleteSavedFlow(name)
-      refreshSavedFlows()
-    } catch (e) {
-      setSavedError(String(e))
-    }
+  function selectFlow(next: TestFlow) {
+    setFlow(next)
+    setResult(null)
+    setState('idle')
   }
 
   async function loadEdgeCases() {
+    if (!flow) return
     setEdgeCaseState('loading')
     setEdgeCaseNote('')
     setEdgeCaseOptions([])
@@ -116,11 +90,23 @@ export function FlowsPage() {
 
   // Accept = generate this one edge case exactly like the main flow, just scoped to its own
   // suffix so its result never overwrites another edge case's or the main flow's.
+  //
+  // Accepting also *saves* the edge case as a real flow. That is what makes it exportable:
+  // the backend has taken edgeCaseFlows since P22, but accepted edge cases only ever lived in
+  // this page's state, so they could not survive the trip to the Export page and the feature
+  // was unreachable. Persisting them means Export can offer them like any other saved flow.
   async function runEdgeCase(option: EdgeCaseOption, write: boolean) {
     setEdgeCaseRuns((prev) => ({ ...prev, [option.nameSuffix]: { status: 'running' } }))
     try {
       const call = write ? generateFlow : previewFlow
       const response = await call({ flow: option.flow })
+
+      if (write) {
+        // Only on Accept & generate, not on Preview — previewing a suggestion should not
+        // leave a saved flow behind for something the user may still reject.
+        await saveFlow(option.flow)
+      }
+
       setEdgeCaseRuns((prev) => ({ ...prev, [option.nameSuffix]: { status: 'done', response } }))
     } catch (e) {
       setEdgeCaseRuns((prev) => ({ ...prev, [option.nameSuffix]: { status: 'error', error: String(e) } }))
@@ -137,6 +123,7 @@ export function FlowsPage() {
   }
 
   async function run(write: boolean) {
+    if (!flow) return
     setState('running')
     setResult(null)
     setError('')
@@ -152,12 +139,6 @@ export function FlowsPage() {
     }
   }
 
-  function resetToSample() {
-    setFlow(SAMPLE_FLOW)
-    setResult(null)
-    setState('idle')
-  }
-
   const shownFiles = result
     ? compareDeterministic
       ? result.deterministicFiles
@@ -170,65 +151,36 @@ export function FlowsPage() {
       <h1>Flows</h1>
       <p>
         Generates a Selenium + Reqnroll BDD suite from a recorded flow.{' '}
-        {isSample ? (
+        {flow ? (
           <>
-            No flow was handed off from Inspect, so this is running the built-in sample flow
-            ("{flow.name}") against the practice login site. Capture your own on the{' '}
-            <Link to="/inspect">Inspect</Link> page and click "Send to Generate" when you're done.
+            Showing <strong>{flow.name}</strong> ({flow.steps.length} step(s))
+            {isSample && ' — the built-in sample'}.
           </>
         ) : (
-          <>
-            Showing <strong>{flow.name}</strong> ({flow.steps.length} step(s)), captured via
-            Inspect.{' '}
-            <button onClick={resetToSample} style={{ fontSize: '0.85em' }}>
-              Use the sample flow instead
-            </button>
-          </>
+          <>Pick a saved flow below, or record one on the <Link to="/inspect">Inspect</Link> page.</>
         )}
       </p>
 
-      <section style={{ margin: '1rem 0' }}>
-        <strong>Saved flows</strong>
-        <p style={{ opacity: 0.7, fontSize: '0.9em', margin: '0.25rem 0' }}>
-          Recordings are saved when an Inspect session stops, so they survive closing the tab and
-          restarting the API. Load one to re-generate it after the app it tests has changed —
-          without re-recording.
-        </p>
-        {savedError && <p style={{ color: '#cf222e' }}>{savedError}</p>}
-        {savedFlows.length === 0 ? (
-          <p style={{ opacity: 0.7 }}>
-            Nothing saved yet — capture a flow on the <Link to="/inspect">Inspect</Link> page.
-          </p>
-        ) : (
-          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-            {savedFlows.map((f) => (
-              <li key={f.name} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', padding: '2px 0' }}>
-                <button onClick={() => loadSavedFlow(f.name)}>Load</button>
-                <span>
-                  <strong>{f.name}</strong> — {f.stepCount} step(s) ·{' '}
-                  <span style={{ opacity: 0.7 }}>{f.startUrl}</span>{' '}
-                  <span style={{ opacity: 0.55 }}>({new Date(f.savedUtc).toLocaleString()})</span>
-                </span>
-                <button onClick={() => removeSavedFlow(f.name)} style={{ fontSize: '0.85em' }}>
-                  Delete
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <FlowPicker
+        selected={flow}
+        onSelect={selectFlow}
+        onUseSample={() => selectFlow(SAMPLE_FLOW)}
+        sampleName={SAMPLE_FLOW.name}
+      />
 
       <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', margin: '1rem 0', flexWrap: 'wrap' }}>
-        <button onClick={() => run(false)} disabled={state === 'running'}>
+        <button onClick={() => run(false)} disabled={state === 'running' || !flow}>
           {state === 'running' ? 'Working…' : 'Preview (writes nothing)'}
         </button>
-        <button onClick={() => run(true)} disabled={state === 'running'}>
+        <button onClick={() => run(true)} disabled={state === 'running' || !flow}>
           Generate &amp; write
         </button>
-        <Link to="/export" state={{ flow }}>
-          Export as test case docs →
-        </Link>
-        <button onClick={loadEdgeCases} disabled={edgeCaseState === 'loading'}>
+        {flow && (
+          <Link to="/export" state={{ flow }}>
+            Export as test case docs →
+          </Link>
+        )}
+        <button onClick={loadEdgeCases} disabled={edgeCaseState === 'loading' || !flow}>
           {edgeCaseState === 'loading' ? 'Thinking…' : '✨ Suggest edge cases'}
         </button>
       </div>
@@ -371,7 +323,9 @@ export function FlowsPage() {
                 <button
                   onClick={() => {
                     setDownloadError('')
-                    downloadGeneratedFilesZip(shownFiles, flow.name).catch((e) => setDownloadError(String(e)))
+                    downloadGeneratedFilesZip(shownFiles, flow?.name ?? 'generated').catch((e) =>
+                      setDownloadError(String(e)),
+                    )
                   }}
                 >
                   Download as .zip

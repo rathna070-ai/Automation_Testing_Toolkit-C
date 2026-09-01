@@ -77,7 +77,17 @@ public sealed class StepLabeler
         if (element is null)
             return actionType == ActionType.Navigate ? "I open the page" : "I perform an action";
 
-        var subject = Humanize(ToPascalCase(DescriptiveName(element)));
+        var descriptive = DescriptiveName(element);
+        var subject = Humanize(ToPascalCase(descriptive));
+
+        // ToPascalCase keeps only [A-Za-z0-9], which is right for an identifier and wrong for
+        // prose: a "$29.99" price label came out as "2999", giving the step "I click the 2999".
+        // When PascalCasing has left no letters at all, the sanitized form carries no meaning,
+        // so the raw captured text reads better and is perfectly legal in a Gherkin sentence.
+        // The *locator key* still uses the identifier-safe form — only the label changes.
+        if (!subject.Any(char.IsLetter) && !string.IsNullOrWhiteSpace(descriptive))
+            subject = Regex.Replace(descriptive.Trim(), @"\s+", " ");
+
         if (subject.Length == 0)
             subject = element.TagName;
 
@@ -92,8 +102,8 @@ public sealed class StepLabeler
             ActionType.Select => $"I choose the {subject}",
             ActionType.Click when type is "checkbox" => $"I tick the {subject}",
             ActionType.Click when type is "radio" => $"I select the {subject}",
-            ActionType.Click when element.TagName.Equals("a", StringComparison.OrdinalIgnoreCase) => $"I click the {subject} link",
-            ActionType.Click when IsButton(element) => $"I click the {subject} button",
+            ActionType.Click when element.TagName.Equals("a", StringComparison.OrdinalIgnoreCase) => $"I click the {WithNoun(subject, "link")}",
+            ActionType.Click when IsButton(element) => $"I click the {WithNoun(subject, "button")}",
             ActionType.Click => $"I click the {subject}",
             ActionType.AssertText => $"I should see the {subject}",
             ActionType.AssertVisible => $"I should see the {subject}",
@@ -102,6 +112,16 @@ public sealed class StepLabeler
     }
 
     // ---------------------------------------------------------------- internals
+
+    // Appends the element-kind noun unless the subject already ends in it. An element with
+    // id="login-button" humanizes to "login button", and appending unconditionally produced
+    // "I click the login button button" — visible in a real recorded flow.
+    //
+    // The locator-key path has always done this (see LocatorKeyFor's
+    // `baseName.EndsWith(suffix)` check); only the label path was missing it. Keeping the two
+    // consistent is the actual fix, not a special case for the word "button".
+    private static string WithNoun(string subject, string noun) =>
+        subject.EndsWith(noun, StringComparison.OrdinalIgnoreCase) ? subject : $"{subject} {noun}";
 
     private static bool IsButton(CapturedElement element)
     {

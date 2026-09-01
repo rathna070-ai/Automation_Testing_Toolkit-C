@@ -7,6 +7,11 @@
 
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+
+    <!-- Deleting a .feature leaves Reqnroll's generated code-behind orphaned, which warns on
+         every subsequent build. Flows get deleted often enough here (a regenerate, a rename,
+         a suggestion that was rejected) that cleaning up automatically is worth it. -->
+    <ReqnrollDeleteObsoleteCodeBehindFilesOnClean>true</ReqnrollDeleteObsoleteCodeBehindFilesOnClean>
   </PropertyGroup>
 
   <ItemGroup>

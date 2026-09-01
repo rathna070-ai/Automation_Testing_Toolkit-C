@@ -138,7 +138,12 @@ export function FailuresPage() {
                       <p style={{ margin: '0.25rem 0' }}>
                         Suggested locator: <code>{g.suggestedLocator.page}.{g.suggestedLocator.key}</code> →{' '}
                         <code>{g.suggestedLocator.strategy}:{g.suggestedLocator.value}</code>{' '}
-                        <Link to="/autoheal">apply it in Auto-heal</Link>
+                        <Link
+                          to="/autoheal"
+                          state={{ page: g.suggestedLocator.page, key: g.suggestedLocator.key }}
+                        >
+                          apply it in Auto-heal
+                        </Link>
                       </p>
                     )}
                     <details>

@@ -302,6 +302,10 @@ export interface TestCaseSuite {
 export interface ExportTestCasesRequest {
   flow: TestFlow
   useLlm?: boolean
+  // Extra flows exported as TestCaseSource.EdgeCase alongside the recorded path. The backend
+  // has accepted this since P22; the field was missing here, which is why the feature was
+  // unreachable from the UI despite being tested and working server-side.
+  edgeCaseFlows?: TestFlow[]
 }
 
 export function previewTestCases(request: ExportTestCasesRequest): Promise<TestCaseSuite> {

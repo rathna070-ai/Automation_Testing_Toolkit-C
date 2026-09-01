@@ -1,6 +1,10 @@
-import { useState } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
+import { FlowPicker } from '../components/FlowPicker'
 import {
+  getSavedFlow,
+  listSavedFlows,
+  type SavedFlowSummary,
   downloadTestCasesXlsx,
   downloadTestCasesXml,
   previewTestCases,
@@ -24,7 +28,13 @@ function flowFromLocationState(state: unknown): TestFlow | null {
 
 export function ExportPage() {
   const location = useLocation()
-  const flow = flowFromLocationState(location.state) ?? SAMPLE_FLOW
+
+  // No `?? SAMPLE_FLOW`. This page is reachable from the nav bar as well as from the Flows
+  // page's "Export" link, so arriving without router state used to silently substitute the
+  // built-in sample — and Preview → Download then produced a plausible document full of the
+  // wrong steps. Null is now a real state the UI has to handle, which makes exporting the
+  // wrong flow impossible rather than merely warned about.
+  const [flow, setFlow] = useState<TestFlow | null>(() => flowFromLocationState(location.state))
   const isSample = flow === SAMPLE_FLOW
 
   const [useLlm, setUseLlm] = useState(true)
@@ -33,11 +43,38 @@ export function ExportPage() {
   const [error, setError] = useState('')
   const [downloading, setDownloading] = useState<'xlsx' | 'xml' | null>(null)
 
+  // Other saved flows, offered as extra test cases in the same document. The backend has
+  // accepted edgeCaseFlows since P22 — TestCaseSuiteBuilder emits them as
+  // TestCaseSource.EdgeCase at High priority — but nothing ever sent it, so the feature was
+  // unreachable from the UI. Accepting an edge case on the Flows page now saves it as a flow,
+  // which is what makes it selectable here.
+  const [otherFlows, setOtherFlows] = useState<SavedFlowSummary[]>([])
+  const [includedNames, setIncludedNames] = useState<string[]>([])
+
+  useEffect(() => {
+    listSavedFlows()
+      .then(setOtherFlows)
+      .catch(() => setOtherFlows([]))
+  }, [])
+
+  function toggleIncluded(name: string) {
+    setIncludedNames((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]))
+    setSuite(null)
+  }
+
+  // Resolved at request time rather than held in state: the picker can change the main flow
+  // underneath a stale selection, and a flow can be deleted between ticking and exporting.
+  async function resolveEdgeCaseFlows(): Promise<TestFlow[]> {
+    const names = includedNames.filter((n) => n !== flow?.name)
+    return Promise.all(names.map(getSavedFlow))
+  }
+
   async function handlePreview() {
+    if (!flow) return
     setState('running')
     setError('')
     try {
-      const result = await previewTestCases({ flow, useLlm })
+      const result = await previewTestCases({ flow, useLlm, edgeCaseFlows: await resolveEdgeCaseFlows() })
       setSuite(result)
       setState('done')
     } catch (e) {
@@ -47,10 +84,11 @@ export function ExportPage() {
   }
 
   async function handleDownload(format: 'xlsx' | 'xml') {
+    if (!flow) return
     setDownloading(format)
     setError('')
     try {
-      const request = { flow, useLlm }
+      const request = { flow, useLlm, edgeCaseFlows: await resolveEdgeCaseFlows() }
       if (format === 'xlsx') await downloadTestCasesXlsx(request, flow.name)
       else await downloadTestCasesXml(request, flow.name)
     } catch (e) {
@@ -66,27 +104,66 @@ export function ExportPage() {
       <p>
         Renders a flow as manual test case documentation — for testers without an automation
         background, test management tools, or a compliance record — instead of code.{' '}
-        {isSample ? (
-          <>No flow was handed off, so this is the built-in sample flow ("{flow.name}").</>
-        ) : (
+        {flow ? (
           <>
-            Showing <strong>{flow.name}</strong> ({flow.steps.length} step(s)).
+            Showing <strong>{flow.name}</strong> ({flow.steps.length} step(s))
+            {isSample && ' — the built-in sample'}.
           </>
+        ) : (
+          <>Pick a saved flow below, or record one on the <Link to="/inspect">Inspect</Link> page.</>
         )}
       </p>
+
+      <FlowPicker
+        selected={flow}
+        onSelect={(f) => {
+          setFlow(f)
+          setSuite(null)
+          setState('idle')
+        }}
+        onUseSample={() => {
+          setFlow(SAMPLE_FLOW)
+          setSuite(null)
+          setState('idle')
+        }}
+        sampleName={SAMPLE_FLOW.name}
+      />
+
+      {flow && otherFlows.filter((f) => f.name !== flow.name).length > 0 && (
+        <section style={{ margin: '1rem 0' }}>
+          <strong>Also include as edge cases</strong>
+          <p style={{ opacity: 0.7, fontSize: '0.9em', margin: '0.25rem 0' }}>
+            Other saved flows to document alongside this one — exported as edge cases, above the
+            recorded path in priority. Accepting an edge-case suggestion on the{' '}
+            <Link to="/flows">Flows</Link> page saves it here.
+          </p>
+          {otherFlows
+            .filter((f) => f.name !== flow.name)
+            .map((f) => (
+              <label key={f.name} style={{ display: 'block' }}>
+                <input
+                  type="checkbox"
+                  checked={includedNames.includes(f.name)}
+                  onChange={() => toggleIncluded(f.name)}
+                />{' '}
+                {f.name} <span style={{ opacity: 0.7 }}>({f.stepCount} steps)</span>
+              </label>
+            ))}
+        </section>
+      )}
 
       <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', margin: '1rem 0', flexWrap: 'wrap' }}>
         <label>
           <input type="checkbox" checked={useLlm} onChange={(e) => setUseLlm(e.target.checked)} />{' '}
           Use AI wording (falls back to deterministic templates if unavailable)
         </label>
-        <button onClick={handlePreview} disabled={state === 'running'}>
+        <button onClick={handlePreview} disabled={state === 'running' || !flow}>
           {state === 'running' ? 'Working…' : 'Preview'}
         </button>
-        <button onClick={() => handleDownload('xlsx')} disabled={downloading !== null}>
+        <button onClick={() => handleDownload('xlsx')} disabled={downloading !== null || !flow}>
           {downloading === 'xlsx' ? 'Downloading…' : 'Download .xlsx'}
         </button>
-        <button onClick={() => handleDownload('xml')} disabled={downloading !== null}>
+        <button onClick={() => handleDownload('xml')} disabled={downloading !== null || !flow}>
           {downloading === 'xml' ? 'Downloading…' : 'Download .xml'}
         </button>
       </div>

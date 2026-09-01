@@ -1,17 +1,34 @@
 import { useEffect, useRef, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { applyAutoHeal, listLocatorPages, startAutoHeal, type LocatorPage } from '../api/autoheal'
 import { connectInspectFeed, stopInspect, type InspectorEvent, type InspectorSessionInfo } from '../api/inspect'
 
 type Phase = 'picking' | 'starting' | 'active' | 'applying' | 'done' | 'error'
 
+// The locator the run-triage panel on the Failures page suggested, if the user arrived from
+// there. Narrowed rather than trusted: router state is untyped and can be stale after a
+// back/forward navigation.
+function suggestionFromLocationState(state: unknown): { page: string; key: string } | null {
+  if (!state || typeof state !== 'object') return null
+  const { page, key } = state as { page?: unknown; key?: unknown }
+  return typeof page === 'string' && typeof key === 'string' ? { page, key } : null
+}
+
 export function AutoHealPage() {
+  const location = useLocation()
+  const suggested = suggestionFromLocationState(location.state)
+
   const [phase, setPhase] = useState<Phase>('picking')
   const [error, setError] = useState('')
 
   const [pages, setPages] = useState<LocatorPage[]>([])
   const [pagesError, setPagesError] = useState('')
-  const [selectedPage, setSelectedPage] = useState('')
-  const [selectedKey, setSelectedKey] = useState('')
+  // Seeded from the failure analysis when the user came via "apply it in Auto-heal". This
+  // only pre-selects the locator — starting the session and applying the fix are still
+  // deliberate clicks, because a healed locator that nobody looked at is exactly the
+  // "silently masks a real regression" failure mode self-healing is criticised for.
+  const [selectedPage, setSelectedPage] = useState(suggested?.page ?? '')
+  const [selectedKey, setSelectedKey] = useState(suggested?.key ?? '')
 
   const [session, setSession] = useState<InspectorSessionInfo | null>(null)
   const [steps, setSteps] = useState<InspectorEvent[]>([])
