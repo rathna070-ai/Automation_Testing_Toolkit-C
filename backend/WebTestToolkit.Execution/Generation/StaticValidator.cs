@@ -32,6 +32,22 @@ public static partial class StaticValidator
     [GeneratedRegex(@"public\s+(?:async\s+)?[\w<>\[\],\.]+\s+(\w+)\s*\([^)]*\)\s*(?=\{|=>)", RegexOptions.Compiled)]
     private static partial Regex MethodSignatureRegex();
 
+    // An assertion whose subject is a literal rather than anything read from the page:
+    // Assert.That(true), Assert.IsTrue(true), Assert.AreEqual(1, 1), Assert.That(1, Is.EqualTo(1)).
+    //
+    // Deliberately narrow, and deliberately free of backreferences. Requiring the two literals
+    // to be equal would need a  pointing into a different alternation branch (which silently
+    // never matches), and equality is the wrong test anyway — AreEqual(1, 2) asserts a literal
+    // instead of the page just as much as AreEqual(1, 1) does. Every alternative here requires
+    // a *literal* operand, so an assertion over a real variable or a page-object call can never
+    // match: a false positive would block a valid generation.
+    [GeneratedRegex(
+        @"Assert\s*\.\s*(?:That|IsTrue|IsFalse)\s*\(\s*(?:true|false)\s*[,)]"
+        + @"|Assert\s*\.\s*(?:AreEqual|AreNotEqual)\s*\(\s*(?:""[^""]*""|-?\d+(?:\.\d+)?|true|false)\s*,\s*(?:""[^""]*""|-?\d+(?:\.\d+)?|true|false)\s*\)"
+        + @"|Assert\s*\.\s*That\s*\(\s*(?:""[^""]*""|-?\d+(?:\.\d+)?|true|false)\s*,\s*Is\s*\.\s*EqualTo\s*\(\s*(?:""[^""]*""|-?\d+(?:\.\d+)?|true|false)\s*\)",
+        RegexOptions.Compiled)]
+    private static partial Regex TautologicalAssertRegex();
+
     private static readonly (string Pattern, string Code, string Message)[] ForbiddenPatterns =
     [
         (@"\bnew\s+ChromeDriver\b", "WTT101", "Generated code must not create a WebDriver; DriverContext already owns the browser session."),
@@ -342,6 +358,24 @@ public static partial class StaticValidator
                     issues.Add(new ValidationIssue(IssueSource.Static, "WTT151", file.Path,
                         LineOf(file.Content, attribute.Index),
                         "This Then step performs no verification. An empty or non-asserting Then step passes silently and reports success without checking anything — it must call Assert or throw."));
+                    continue;
+                }
+
+                // Presence of the word "Assert" was the whole check until now, which a
+                // tautology satisfies: Assert.That(true) or Assert.IsTrue(true) reads like
+                // verification, compiles, passes forever, and checks nothing. Industry
+                // reviews of AI-written tests name this — an assertion that pins down the
+                // absence of an obvious failure rather than the behaviour — as the single
+                // most common defect, so the gate has to see through it rather than count
+                // tokens.
+                var tautology = TautologicalAssertRegex().Match(stripped);
+                if (tautology.Success)
+                {
+                    issues.Add(new ValidationIssue(IssueSource.Static, "WTT153", file.Path,
+                        LineOf(file.Content, attribute.Index),
+                        $"'{tautology.Value.Trim()}' asserts a literal, not the page. It passes whatever the "
+                        + "application does, so this step reports success without testing anything — assert on a "
+                        + "value read back from the page object instead."));
                 }
             }
         }

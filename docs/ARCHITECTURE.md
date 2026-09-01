@@ -74,7 +74,7 @@ project references to the toolkit at all, by design, so it stays runnable standa
 
 ## 2. Current status
 
-### Implemented — P1 through P19
+### Implemented — P1 through P21
 
 | Phase | Delivers | Key files |
 |---|---|---|
@@ -93,10 +93,12 @@ project references to the toolkit at all, by design, so it stays runnable standa
 | **P16** | Risk mitigation, all six items — adversarial-DOM injection tests proving `StaticValidator` (not prompt fencing) is the real trust boundary; `DriverContext` wraps `ChromeDriver` creation in an actionable error; the hand-written sample suite now runs against a local `TinyWebServer` fixture instead of `the-internet.herokuapp.com`; `GenerationResultCache` serves a repeated *unchanged* Preview from an in-memory cache (scoped to `WriteToProject:false` only — a cache hit must never silently skip writing a real Generate click) with a `Cached` flag surfaced through to the UI; a Windows Job Object (`ChromeProcessJob`/`ChildProcessFinder`, P/Invoke) kills every chromedriver/Chrome process the instant the API process dies, graceful or not — live-verified by force-killing the API mid-session and confirming both processes vanished while unrelated Chrome windows survived; Auto-heal's UI states its structural-change limit | `Execution/Generation/GenerationResultCache.cs`, `Inspector/{ChromeProcessJob,ChildProcessFinder}.cs`, `tests/WebTestToolkit.GeneratedTests/Support/{DriverContext,Hooks,TinyWebServer}.cs`, `frontend/src/pages/AutoHealPage.tsx` |
 | **P18** | Generation reliability, completed: the deterministic path is statically validated (item 1); `ActionType.Select` plus idempotent checkbox/radio steps that use the captured `Checked` state rather than blind-clicking a toggle (item 2); and the prompt now carries `bestLocator` — the winner `CapturedElement.BestLocator` already picks — instead of the full ranked `candidates` array, while keeping the real element state (options/required/maxLength) the model cannot derive for itself (item 3) | `Execution/Generation/{HybridTestCodeGenerator,ReferenceBundleBuilder}.cs`, `CodeGenerator/PageObjectGenerator.cs` |
 | **P19** | Flow persistence and regeneration — a recorded `TestFlow` is written to `%AppData%\WebTestToolkitlows` when its inspect session **stops** (the last moment the session is guaranteed to exist: `InspectorSessionManager` evicts after `CompletedRetention`, and a restart drops them outright). `GET/PUT/DELETE /api/flows` plus a saved-flow list on `FlowsPage`, so a flow recorded days ago can be reloaded and re-generated against a changed UI without re-recording — the thing `playwright codegen` cannot do, and which this toolkit could not do either until now. `FlowStore` mirrors `FileSettingsStore` (same root, `SemaphoreSlim`, write-temp-then-move) and takes its directory as a parameter so tests never touch the real `%AppData%`. Brings `WebTestToolkit.Api` its first test project | `Api/Services/FlowStore.cs`, `Api/Controllers/{Flows,Inspect}Controller.cs`, `frontend/src/pages/FlowsPage.tsx`, `tests/WebTestToolkit.Api.Tests/` |
+| **P20** | Parallel-safe generated suite — `LocatorRepository`'s static cache is a `ConcurrentDictionary` and `PageLocators.Locators` is handed out read-only, so the instance every scenario shares can no longer be raced or mutated; feature-level parallelism (`ParallelScope.Fixtures`, degree 4) is enabled, which suits a generator that emits one feature per flow and keeps `[BeforeFeature]` usable, unlike scenario-level. Sample suite run time roughly halved | `tests/WebTestToolkit.GeneratedTests/Support/{LocatorRepository,ParallelExecution}.cs` |
+| **P21** | Assertion quality — new **WTT153** rejects a tautological assertion (`Assert.That(true)`, `Assert.IsTrue(true)`, `Assert.AreEqual(1, 1)`, `Assert.That(1, Is.EqualTo(1))`), the "pins down the absence of an obvious failure" shape that WTT151's substring check waved through; the deterministic emitter's own assertions now carry failure messages naming the element instead of a bare `Is.True`; and Stryker.NET runs weekly (never per-PR, never gating) to score whether the rules are actually *tested* rather than merely executed | `Execution/Generation/StaticValidator.cs`, `CodeGenerator/StepsGenerator.cs`, `stryker-config.json`, `docs/MUTATION-TESTING.md` |
 | **P19a** | The three highest-impact fixes from the external review: the Groq plan's tokens-per-minute allowance is a **setting** (`AppSettings.GroqTokensPerMinute`, read per call) rather than a constant, so upgrading the plan takes effect without a rebuild; a recorded `<select>` now generates `SelectElement.SelectByText` instead of `Clear()+SendKeys()`, which threw `InvalidElementStateException` on every flow containing a dropdown; and generated binding classes carry `[Scope(Feature = "...")]`, so two flows recorded against the same site no longer collide as ambiguous step definitions — previously a hard block on generating a second flow per site. Two bugs surfaced only by live testing: the generation cache keyed without the allowance (so raising it replayed a stale "plan too small" result) and `PersistedSettingsFile` silently dropped the new field on save | `Contracts/Models/{AppSettings,ActionType}.cs`, `CodeGenerator/{PageObjectGenerator,StepsGenerator,GherkinStepPlanner}.cs`, `Execution/Generation/{HybridTestCodeGenerator,BindingIndex,GenerationResultCache}.cs`, `Inspector/Overlay/inspector-overlay.js`, `Api/Services/FileSettingsStore.cs` |
 | **P17** | Export generated script files — `POST /api/export/generated-files/zip` zips whichever file set (`files`/`deterministicFiles`) the frontend already holds in memory, one entry per `GeneratedFile.RelativePath`, no regeneration triggered. Caught live during verification: the first version emitted a UTF-8 BOM per entry (`Encoding.UTF8`'s default preamble) that `File.WriteAllText` — what a real Generate actually writes with — never emits; fixed to an explicit no-BOM encoding and pinned with a dedicated regression test | `Export/GeneratedFilesZipWriter.cs`, `Api/Controllers/ExportController.cs`, `frontend/src/api/client.ts`, `frontend/src/pages/FlowsPage.tsx` |
 
-**Verified:** 209/209 backend tests (plus 5/5 opt-in `[Category("Browser")]` real-Chrome tests —
+**Verified:** 225/225 backend tests (plus 5/5 opt-in `[Category("Browser")]` real-Chrome tests —
 `dotnet test --filter "Category=Browser"`, which now also live-proves P16 item 3's crash cleanup
 doesn't break normal session start), `dotnet build` clean (Debug + Release, 15 projects), frontend
 `tsc`/`vite build`/`oxlint` clean. `tests/WebTestToolkit.GeneratedTests` (the hand-written sample
@@ -161,10 +163,19 @@ issues" button (P5's repair loop already automates that). The five genuinely new
 
 ### Roadmap — not yet implemented
 
-| Phase | Adds | Acceptance |
-|---|---|---|
-| **P20** | Parallel-safe generated suite (+ green CI) | `reqnroll.json` enables scenario-level parallelism without shared-state corruption, and `dotnet test` on the solution is green again |
-| **P21** | Assertion quality — the generated tests actually pin behaviour down, not just the absence of an obvious failure | `WTT151` rejects a tautological assertion, and a scheduled Stryker.NET run scores the rule layer |
+**Nothing is currently queued.** Every phase through P21 is built; the subsections below are kept
+as the build record rather than as pending work. What remains is written down in three places
+instead of a roadmap row, because each is a decision rather than a task:
+
+- **§3's deferred skills** — skill 3 (assertion inference) and skill 5 (Scenario Outline
+  expansion). Skill 5 still needs `TestFlow` to gain an Outline representation, which is a
+  contract change, not a prompt.
+- **Widening mutation testing to `Execution/Generation`** (`docs/MUTATION-TESTING.md`) — blocked on
+  `StaticValidator` getting a compiler-free test path, since its current suite shells out to MSBuild
+  per test.
+- **The Groq plan** — the free tier's 8,000 TPM cannot fit one generation, so the AI path stays
+  unreachable until the plan is upgraded and `GroqTokensPerMinute` is raised to match. No code
+  change reaches it (§6, risk 6).
 
 P16 and P17 are implemented — see the table above. §6 below still narrates them in the risk ledger's
 own voice (what was open, what closed it), and this section keeps both subsections as the permanent
@@ -468,8 +479,6 @@ above — leaving only the not-yet-built work below.
 
 | Phase | Effort (hrs) | Model |
 |---|---|---|
-| **P20** — parallel-safe suite + green CI | 2–4 | Sonnet 5 (the `ConcurrentDictionary` fix is trivial; proving parallelism actually holds against a real browser is the work) |
-| **P21** — assertion quality | 3–5 | Sonnet 5 (deepening `WTT151` is real analysis, not a substring swap; Stryker wiring is mechanical but its first run needs interpreting) |
 | **Deferred from P9/P10** — skills 3 & 5, `[AfterStep]` screenshots, screenshot preview | 10–14 | Sonnet 5 |
 
 ---

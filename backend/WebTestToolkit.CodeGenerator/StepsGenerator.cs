@@ -91,11 +91,22 @@ public static class StepsGenerator
             case ActionType.AssertText:
                 sb.AppendLine($"        var actual = {pageField}.{plan.PageObjectMethodName}();");
                 var expected = Naming.EscapeForRegularString(plan.Step.ExpectedText ?? "");
-                sb.AppendLine($"        Assert.That(actual, Does.Contain(\"{expected}\"));");
+                // The message carries the expected value and the element, so a failure report
+                // says what was wrong rather than just "String containing ... was expected".
+                sb.AppendLine(
+                    $"        Assert.That(actual, Does.Contain(\"{expected}\"), " +
+                    $"\"{Naming.EscapeForRegularString(plan.LocatorKey)} did not contain the expected text.\");");
                 break;
 
             case ActionType.AssertVisible:
-                sb.AppendLine($"        Assert.That({pageField}.{plan.PageObjectMethodName}(), Is.True);");
+                // Assert.That(x, Is.True) over a Displayed check is the weak-assertion shape
+                // WTT151/WTT153 exist to discourage: it reports success or failure with no
+                // statement of what was being looked for. Naming the element in the failure
+                // message costs nothing and makes the report self-explanatory.
+                sb.AppendLine($"        var isVisible = {pageField}.{plan.PageObjectMethodName}();");
+                sb.AppendLine(
+                    $"        Assert.That(isVisible, Is.True, " +
+                    $"\"Expected {Naming.EscapeForRegularString(plan.LocatorKey)} to be visible on the page.\");");
                 break;
         }
 

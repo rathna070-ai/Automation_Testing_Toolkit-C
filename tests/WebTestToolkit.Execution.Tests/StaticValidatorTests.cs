@@ -233,7 +233,7 @@ public class StaticValidatorTests
             [Then(@"I should see a success message")]
             public void ThenIShouldSeeASuccessMessage()
             {
-                Assert.That(true, Is.True);
+                Assert.That(_page.GetFlashMessage(), Does.Contain("Welcome"));
             }
         }
         """";
@@ -819,5 +819,90 @@ public class StaticValidatorTests
             ]), unscoped);
 
         Assert.That(issues.Any(i => i.Code == "WTT130"), Is.True);
+    }
+
+    // --- WTT153: tautological assertions (P21) -------------------------------------------
+    //
+    // WTT151 only ever asked whether the word "Assert" appeared. Assert.That(true) satisfies
+    // that, compiles, passes forever and verifies nothing — the "pins down the absence of an
+    // obvious failure" shape that reviews of AI-written tests name as the most common defect.
+    // A blocking rule here has to be precise in both directions: missing a tautology ships a
+    // test that can never fail, and a false positive blocks a perfectly good generation.
+
+    // Four-quote delimiter: the When binding below contains @"...""(.*)""" — a run of three
+    // quotes that would otherwise close a """ raw string early.
+    private static string ThenStepWithBody(string body) => $$""""
+        using Reqnroll;
+        namespace WebTestToolkit.GeneratedTests.Steps;
+
+        [Binding]
+        public class LoginSteps
+        {
+            [Given(@"I am on the login page")]
+            public void GivenIAmOnTheLoginPage() { _page.NavigateTo(); }
+
+            [When(@"I enter the username ""(.*)""")]
+            public void WhenIEnterTheUsername(string value) { _page.EnterUsername(value); }
+
+            [Then(@"I should see a success message")]
+            public void ThenIShouldSeeASuccessMessage()
+            {
+                {{body}}
+            }
+        }
+        """";
+
+    private static List<ValidationIssue> ValidateThenBody(string body) =>
+        StaticValidator.Validate(
+            FileSet(files:
+            [
+                new GeneratedFileDto("Features/Login.feature", ValidFeature),
+                new GeneratedFileDto("PageObjects/LoginPage.cs", ValidPageObject),
+                new GeneratedFileDto("Steps/LoginSteps.cs", ThenStepWithBody(body))
+            ]), []);
+
+    [TestCase("Assert.That(true);")]
+    [TestCase("Assert.That(true, \"always passes\");")]
+    [TestCase("Assert.IsTrue(true);")]
+    [TestCase("Assert.IsFalse(false);")]
+    [TestCase("Assert.AreEqual(1, 1);")]
+    [TestCase("Assert.AreEqual(\"ok\", \"ok\");")]
+    [TestCase("Assert.That(1, Is.EqualTo(1));")]
+    public void TautologicalAssertion_IsRejected(string body)
+    {
+        var issues = ValidateThenBody(body);
+
+        Assert.That(issues.Any(i => i.Code == "WTT153"), Is.True,
+            $"'{body}' passes no matter what the application does.");
+    }
+
+    // The false-positive side. Each of these asserts on something actually read from the page,
+    // and blocking any of them would reject a correct generation.
+    [TestCase("var actual = _page.GetFlashMessage(); Assert.That(actual, Does.Contain(\"Welcome\"));")]
+    [TestCase("Assert.That(_page.IsVisible(), Is.True, \"Expected the banner to be visible.\");")]
+    [TestCase("Assert.That(_page.GetCount(), Is.EqualTo(1));")]
+    [TestCase("Assert.AreEqual(\"expected\", _page.GetFlashMessage());")]
+    [TestCase("if (!_page.IsVisible()) throw new Exception(\"not visible\");")]
+    public void RealAssertion_IsNotFlagged(string body)
+    {
+        var issues = ValidateThenBody(body);
+
+        Assert.That(issues.Any(i => i.Code == "WTT153"), Is.False,
+            $"'{body}' asserts on the page, not on a literal — flagging it would block valid output. "
+            + "Issues: " + string.Join("; ", issues.Select(i => $"{i.Code} {i.Message}")));
+    }
+
+    // WTT151 stays the check for "no assertion at all"; WTT153 is specifically about an
+    // assertion that exists but cannot fail. A body with neither should report the former.
+    [Test]
+    public void ThenStepWithNoAssertionAtAll_IsStillWTT151_NotWTT153()
+    {
+        var issues = ValidateThenBody("_page.GetFlashMessage();");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(issues.Any(i => i.Code == "WTT151"), Is.True);
+            Assert.That(issues.Any(i => i.Code == "WTT153"), Is.False);
+        });
     }
 }

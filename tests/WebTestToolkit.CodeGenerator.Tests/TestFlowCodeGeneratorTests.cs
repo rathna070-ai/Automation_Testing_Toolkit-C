@@ -136,7 +136,11 @@ public class TestFlowCodeGeneratorTests
         Assert.That(steps, Does.Contain("public class LoginSteps"));
         Assert.That(steps, Does.Contain("public LoginSteps(LoginPage loginPage)"));
         Assert.That(steps, Does.Contain("[Given(@\"I\\ am\\ on\\ the\\ login\\ page\")]").Or.Contain("[Given(@\"I am on the login page\")]"));
-        Assert.That(steps, Does.Contain("Assert.That(actual, Does.Contain(\"You logged into a secure area\"));"));
+        // Asserts the value under test and that a failure message accompanies it, without
+        // pinning the exact emitted line — the message wording is expected to keep improving.
+        Assert.That(steps, Does.Contain("Does.Contain(\"You logged into a secure area\")"));
+        Assert.That(steps, Does.Contain("did not contain the expected text"),
+            "A bare Assert with no message makes a failure report say nothing about what was expected.");
     }
 
     [Test]

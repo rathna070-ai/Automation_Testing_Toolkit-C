@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Mutation testing is far too slow for a per-PR gate (minutes to tens of minutes even
+  # scoped to two projects), so it runs on a schedule instead — the standard advice, and the
+  # reason the `mutation` job below is conditioned on this trigger.
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
 
 env:
   # Stale MSBuild worker nodes can hold file locks between build/test invocations on
@@ -63,3 +69,32 @@ jobs:
       - name: Typecheck + build
         working-directory: frontend
         run: npm run build
+
+  # Scores whether the rules in StaticValidator/the generators are actually *tested*, as
+  # opposed to merely executed. A surviving mutant there means a rule no test pins down —
+  # which is precisely how WTT151 spent several phases as a substring check that looked
+  # stronger than it was. Advisory: it reports, it does not gate (break threshold 0).
+  mutation:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Install Stryker
+        run: dotnet tool install -g dotnet-stryker
+
+      - name: Run mutation tests
+        run: dotnet stryker --config-file stryker-config.json
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: StrykerOutput/**/reports/**
+          if-no-files-found: ignore

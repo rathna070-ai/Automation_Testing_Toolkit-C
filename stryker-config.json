@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-net/master/src/Stryker.Core/Stryker.Core/schema.json",
+  "stryker-config": {
+    "project-info": {
+      "name": "github.com/rathna070-ai/Automation_Testing_Toolkit-C",
+      "module": "code-generator"
+    },
+    "project": "WebTestToolkit.CodeGenerator.csproj",
+    "test-projects": [
+      "tests/WebTestToolkit.CodeGenerator.Tests/WebTestToolkit.CodeGenerator.Tests.csproj"
+    ],
+    "reporters": ["html", "progress", "cleartext"],
+    "thresholds": { "high": 80, "low": 70, "break": 0 },
+    "concurrency": 4
+  }
+}

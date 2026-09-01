@@ -20,3 +20,6 @@ Results/
 # Visual Studio
 .vs/
 *.user
+
+# Mutation-testing output (docs/MUTATION-TESTING.md) — reports, not source.
+StrykerOutput/
