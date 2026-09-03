@@ -23,3 +23,11 @@ Results/
 
 # Mutation-testing output (docs/MUTATION-TESTING.md) — reports, not source.
 StrykerOutput/
+
+# Python (ado-defect-analysis)
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+ado-defect-analysis/data/*.db
+ado-defect-analysis/data/exports/
