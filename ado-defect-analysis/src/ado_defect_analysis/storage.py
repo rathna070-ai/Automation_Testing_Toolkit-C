@@ -26,7 +26,9 @@ CREATE TABLE IF NOT EXISTS defects (
     resolution_notes TEXT,
     root_cause_raw TEXT,
     created_date TEXT,
-    closed_date TEXT
+    closed_date TEXT,
+    tags TEXT,
+    comments TEXT
 );
 
 CREATE TABLE IF NOT EXISTS categorizations (
@@ -62,8 +64,9 @@ class DefectStore:
                 """
                 INSERT INTO defects
                     (id, title, description, module, severity, state,
-                     resolution_notes, root_cause_raw, created_date, closed_date)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     resolution_notes, root_cause_raw, created_date, closed_date,
+                     tags, comments)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     title=excluded.title,
                     description=excluded.description,
@@ -73,7 +76,9 @@ class DefectStore:
                     resolution_notes=excluded.resolution_notes,
                     root_cause_raw=excluded.root_cause_raw,
                     created_date=excluded.created_date,
-                    closed_date=excluded.closed_date
+                    closed_date=excluded.closed_date,
+                    tags=excluded.tags,
+                    comments=excluded.comments
                 """,
                 [
                     (
@@ -87,6 +92,8 @@ class DefectStore:
                         d.root_cause_raw,
                         d.created_date,
                         d.closed_date,
+                        d.tags,
+                        d.comments,
                     )
                     for d in defects
                 ],
@@ -147,4 +154,6 @@ def _row_to_defect(row: sqlite3.Row) -> Defect:
         root_cause_raw=row["root_cause_raw"] or "",
         created_date=row["created_date"] or "",
         closed_date=row["closed_date"],
+        tags=row["tags"] or "",
+        comments=row["comments"] or "",
     )

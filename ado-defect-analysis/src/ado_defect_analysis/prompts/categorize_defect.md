@@ -14,6 +14,11 @@ Root cause categories:
 - `unknown` — not enough information in the title/description/resolution to
   tell.
 
+Each defect also carries `tags` (ADO work-item tags, comma-separated) and
+`comments` (discussion thread, if available) when present — use them as
+extra signal alongside the title, description, and resolution notes. Either
+field may be empty; that is not itself informative.
+
 Be decisive: pick `unknown` only when the fields genuinely don't say enough,
 not when the answer requires slight inference. Base every judgment only on
 the fields given — do not invent context about the product.

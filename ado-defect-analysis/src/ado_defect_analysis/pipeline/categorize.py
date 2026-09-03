@@ -71,6 +71,8 @@ def _categorize_batch(
                     "module": d.module,
                     "severity": d.severity,
                     "resolution_notes": d.resolution_notes[:2000],
+                    "tags": d.tags,
+                    "comments": d.comments[:2000],
                 }
                 for d in batch
             ]

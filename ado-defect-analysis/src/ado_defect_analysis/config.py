@@ -37,6 +37,7 @@ class AdoConfig:
     lookback_days: int = 180
     root_cause_field: str = "Microsoft.VSTS.CMMI.RootCause"
     batch_size: int = 200
+    fetch_comments: bool = False
 
     @property
     def base_url(self) -> str:
@@ -86,6 +87,7 @@ class Config:
                 "ADO_ROOT_CAUSE_FIELD", "Microsoft.VSTS.CMMI.RootCause"
             ),
             batch_size=_env_int("ADO_BATCH_SIZE", 200),
+            fetch_comments=os.environ.get("ADO_FETCH_COMMENTS", "false").lower() == "true",
         )
         llm = LlmConfig(
             provider=os.environ.get("LLM_PROVIDER", "groq").lower(),

@@ -10,16 +10,29 @@ Status of each phase reflects what's in this scaffold today, not a future promis
   moving to Copilot later means implementing one class, not touching pipeline code.
 - Unit tests for storage, models, the LLM factory, and the Groq HTTP layer (mocked).
 
-## Phase 1 — ADO pull
+## Phase 1 — Get defects in: ADO API or Excel export
 
-- `ado_client.py`: WIQL query for closed/resolved/done work items of the configured
-  type within a lookback window, then a batched `workitemsbatch` fetch for the fields
-  needed downstream (title, description, area path, severity, resolution notes,
-  a configurable root-cause field, created/closed dates).
-- `pipeline/fetch.py` lands results in SQLite (`defects` table), upserting by id so
-  re-running fetch is safe.
-- **To exercise this phase**: set `ADO_ORGANIZATION`, `ADO_PROJECT`, `ADO_PAT` in
-  `.env`, then `python -m ado_defect_analysis.cli fetch`.
+Two input paths, same downstream storage:
+
+- **API path** — `ado_client.py`: WIQL query for closed/resolved/done work items of
+  the configured type within a lookback window, then a batched `workitemsbatch`
+  fetch for the fields needed downstream (title, description, area path, severity,
+  resolution notes, tags, a configurable root-cause field, created/closed dates).
+  Comment threads need a separate per-item call (no ADO batch endpoint for them),
+  so they're opt-in via `ADO_FETCH_COMMENTS=true`.
+  **To exercise**: set `ADO_ORGANIZATION`, `ADO_PROJECT`, `ADO_PAT` in `.env`, then
+  `python -m ado_defect_analysis.cli fetch`.
+- **Excel/CSV path** — `excel_source.py`: parses a hand-exported ADO extract
+  (`.xlsx`/`.csv`), matching columns case-insensitively against known ADO header
+  names (both display names and raw field references), with an override hook for
+  nonstandard exports. No ADO credentials needed — this is the path for
+  environments that won't issue API access, and it's actually cheaper than the API
+  path for comments: a Comments column in the export costs nothing extra, versus
+  N per-defect REST calls.
+  **To exercise**: `python -m ado_defect_analysis.cli fetch --from-excel PATH`.
+
+Either way, `pipeline/fetch.py` lands results in SQLite (`defects` table),
+upserting by id so re-running fetch — from either source — is safe.
 
 ## Phase 2 — LLM categorization
 

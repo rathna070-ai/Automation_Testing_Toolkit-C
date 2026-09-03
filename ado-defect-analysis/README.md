@@ -40,6 +40,38 @@ Output lands in `data/`: `defects.db` (SQLite — raw pull + categorizations) an
 `exports/` (`categorized_defects.csv`/`.xlsx`, `narrative_summary.json`). Both are
 gitignored; regenerate them by re-running the pipeline.
 
+## Getting defects in: ADO API or an Excel export
+
+Two ways to populate `defects.db` — pick whichever matches what access you actually have:
+
+**Direct API** (`fetch`, no flag) — needs `ADO_ORGANIZATION`, `ADO_PROJECT`, `ADO_PAT`
+in `.env`. Queries ADO's WIQL endpoint for closed/resolved/done work items, then
+batch-fetches fields for each. Comment threads are *not* pulled by default (ADO has
+no batch endpoint for comments — it's one REST call per work item); set
+`ADO_FETCH_COMMENTS=true` to turn that on if you want them and can afford the extra
+calls.
+
+**Excel/CSV import** (`fetch --from-excel PATH`) — no PAT, no API access, no
+`ADO_ORGANIZATION`/`ADO_PROJECT` needed at all. Point it at a file exported from ADO
+by hand (a query's "Open in Microsoft Excel," or "Export to CSV"):
+
+```bash
+python -m ado_defect_analysis.cli fetch --from-excel path/to/defects_export.xlsx
+# or run the whole pipeline against the export in one shot
+python -m ado_defect_analysis.cli run-all --from-excel path/to/defects_export.xlsx
+```
+
+Column headers are matched case-insensitively against both the display name ADO
+shows in the UI ("Title", "Area Path", "Tags") and the raw field reference name
+("System.Title", "System.AreaPath", "System.Tags") — a typical export just works.
+Include a **Tags** and a **Comments** column in the export (add them to the query's
+column options before exporting) and both flow into the categorization prompt as
+extra signal, the same as the API path's `ADO_FETCH_COMMENTS=true` would give you,
+at zero extra API cost. Only `ID` and `Title` are required; everything else is
+optional and defaults to blank if the column isn't present. If your export uses
+unusual header names, pass a `column_map` to `parse_excel()`
+(`src/ado_defect_analysis/excel_source.py`) rather than renaming the sheet.
+
 ## Tests
 
 ```bash
@@ -71,8 +103,9 @@ Groq or Copilot directly — so switching providers is a config change:
 src/ado_defect_analysis/
   config.py           Env-driven settings (ADO connection, LLM provider + keys, paths)
   models.py           Defect / DefectCategorization dataclasses
-  ado_client.py        Azure DevOps WIQL query + batched work-item fetch
-  storage.py            SQLite persistence (defects, categorizations)
+  ado_client.py        Azure DevOps WIQL query + batched work-item fetch (API path)
+  excel_source.py       ADO Excel/CSV export parser (no-API path)
+  storage.py              SQLite persistence (defects, categorizations)
   llm/
     base.py             LlmProvider interface
     groq_provider.py     Groq implementation
@@ -81,7 +114,7 @@ src/ado_defect_analysis/
   prompts/               Markdown prompt templates
   schemas/                Expected JSON response shapes
   pipeline/
-    fetch.py              Phase 1 — ADO -> SQLite
+    fetch.py              Phase 1 — ADO API or Excel/CSV -> SQLite
     categorize.py          Phase 2 — batch LLM categorization
     aggregate.py            Phase 3a — stats from categorized defects
     report.py                Phase 3b — LLM narrative summary

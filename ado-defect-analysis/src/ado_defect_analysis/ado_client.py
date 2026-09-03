@@ -25,6 +25,7 @@ _DEFAULT_FIELDS = [
     "System.State",
     "System.CreatedDate",
     "System.History",
+    "System.Tags",
     "Microsoft.VSTS.Common.Severity",
     "Microsoft.VSTS.Common.ClosedDate",
     "Microsoft.VSTS.Common.ResolvedReason",
@@ -51,7 +52,32 @@ class AdoClient:
             return []
         items = self._fetch_work_items(ids)
         root_cause_field = self._config.root_cause_field
-        return [Defect.from_work_item(item, root_cause_field) for item in items]
+        return [
+            Defect.from_work_item(
+                item,
+                root_cause_field,
+                comments=self._fetch_comment_text(item["id"]) if self._config.fetch_comments else "",
+            )
+            for item in items
+        ]
+
+    def _fetch_comment_text(self, work_item_id: int) -> str:
+        """One request per work item — ADO has no batch endpoint for comments.
+
+        Off by default (ADO_FETCH_COMMENTS=false) because it turns an N-defect
+        fetch into N+1 requests; turn it on for smaller pulls where comment
+        threads add real signal, or use the Excel import path instead, which
+        carries comments at no extra API cost.
+        """
+        url = (
+            f"{self._config.base_url}/wit/workItems/{work_item_id}/comments"
+            f"?api-version={self._config.api_version}-preview.4"
+        )
+        response = self._session.get(url)
+        if response.status_code >= 400:
+            return ""
+        comments = response.json().get("comments", [])
+        return " | ".join(c.get("text", "") for c in comments if c.get("text"))
 
     def _query_work_item_ids(self) -> list[int]:
         wiql = self._build_wiql()
